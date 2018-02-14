@@ -13,6 +13,7 @@ extern LONGLONG g_TotalAllocSize;
 
 void DoSomeManagedCode();
 
+
 #define USETLSINDEX 1
 
 #if !USETLSINDEX
