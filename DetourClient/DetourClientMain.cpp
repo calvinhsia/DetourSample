@@ -3,6 +3,9 @@
 #include "crtdbg.h"
 #include "stdio.h"
 
+#include <atlbase.h>
+#include <atlcom.h>
+
 void CollectStacks(int size);
 LONGLONG GetNumStacksCollected();
 int g_tlsIndex;
@@ -11,21 +14,27 @@ SIZE_T g_AllocSizeThresholdForStackCollection = 0;// 1024 * 1024;
 extern int g_nTotalAllocs;
 extern LONGLONG g_TotalAllocSize;
 
+
+CComAutoCriticalSection g_csHeap;
+
 void DoSomeManagedCode();
 
 
+// must define this for 64 bit:
+#ifdef _WIN64
 #define USETLSINDEX 1
+#endif _WIN64
 
 #if !USETLSINDEX
 
-	#define ISRECUR tlRecursionHeapAlloc
-	#define SETRECUR tlRecursionHeapAlloc=true;
-	#define SETRECURDONE tlRecursionHeapAlloc=false;
+#define ISRECUR tlRecursionHeapAlloc
+#define SETRECUR tlRecursionHeapAlloc=true;
+#define SETRECURDONE tlRecursionHeapAlloc=false;
 #else
 
 
 /*
-Using TlsIndex is a little complicated with heap alloc: When a thread is intialized, another DLL can call TlsAlloc, 
+Using TlsIndex is a little complicated with heap alloc: When a thread is intialized, another DLL can call TlsAlloc,
 which tries to allocate more memory, but our Tls data hasn't been initialized yet.
 
 		>	DetourClient.dll!MyRtlAllocateHeap(void * hHeap, unsigned long dwFlags, unsigned long size) Line 36	C++
@@ -49,14 +58,47 @@ So we'll use 0 for Uninitialized. 1 for IsRecur, 2 for RecurDone
 
 #endif
 
+extern "C" DWORD _tls_index;
+
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 {
 	if (size > g_AllocSizeThresholdForStackCollection)
 	{
 #if !USETLSINDEX
 		thread_local 
-		static bool tlRecursionHeapAlloc = false;
+		//__declspec(thread)
+			static bool tlRecursionHeapAlloc = false;
 #endif
+		{
+			//			CComCritSecLock<CComAutoCriticalSection> lock(g_csHeap);
+		}
+
+
+		/*
+		// heapalloc is called when initializing a new thread, so we can't use TLS until it's been initialized, so we bailout
+
+			>	DetourClient.dll!MyRtlAllocateHeap(void * hHeap, unsigned long dwFlags, unsigned long size) Line 72	C++	Symbols loaded.
+			DetourSharedBase.exe!MyStubRtlAllocateHeap(void * hHeapHandle, unsigned long dwFlags, unsigned long nSize) Line 77	C++	Symbols loaded.
+			ntdll.dll!LdrpGetNewTlsVector(unsigned long EntryCount) Line 674	C	Symbols loaded.
+			ntdll.dll!LdrpAllocateTls() Line 810	C	Symbols loaded.
+			ntdll.dll!LdrpInitializeThread(_CONTEXT * Context) Line 6244	C	Symbols loaded.
+			ntdll.dll!_LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1754	C	Symbols loaded.
+			ntdll.dll!LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1403	C	Symbols loaded.
+			ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 75	C	Symbols loaded.
+		*/
+#ifndef _WIN64
+
+		_asm mov eax, _tls_index;
+		_asm mov ecx, fs:[2ch]
+		_asm cmp ecx, 0
+		_asm je bailout
+#else
+#if !USETLSINDEX
+//#Error: can't use thread_local to detour heapalloc in 64 bit
+#endif !USETLSINDEX
+
+#endif _WIN64
+
 		/*
 		tlsindex is valid, but the tls data is 0, dereferencing ecx:
 
@@ -75,6 +117,10 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 			SETRECURDONE;
 		}
 	}
+#ifndef _WIN64
+	_asm bailout:
+#endif _WIN64
+
 	return Real_RtlAllocateHeap(hHeap, dwFlags, size);
 }
 
@@ -191,7 +237,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 }
 
 
-BOOL WINAPI DllMain
+BOOL WINAPI DllMainxx
 (
 	HINSTANCE hInst,
 	ULONG     ulReason,
@@ -222,7 +268,7 @@ BOOL WINAPI DllMain
 		break;
 	case DLL_THREAD_DETACH:
 		break;
-	}
+}
 
 	return retval;
 }
