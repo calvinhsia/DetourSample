@@ -7,6 +7,7 @@ using System.Windows.Forms;
 using System.Data;
 using System.Threading;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 // from https://blogs.msdn.microsoft.com/calvin_hsia/2008/07/14/cellular-automata-the-game-of-life/
 namespace CSLife
@@ -199,7 +200,7 @@ namespace CSLife
                 }
             }
         }
-        private void handlethebutton(object sender, EventArgs e)
+        private void Handlethebutton(object sender, EventArgs e)
         {
             m_nReset = true;
         }
@@ -209,9 +210,11 @@ namespace CSLife
         private void Onmmove(object sender, MouseEventArgs e)
         {
             Point pt = this.PointToClient(Cursor.Position);
-            Point ptcell = new Point();
-            ptcell.X = (pt.X - m_Offx) / m_cellx;
-            ptcell.Y = (pt.Y - m_Offy) / m_celly;
+            Point ptcell = new Point
+            {
+                X = (pt.X - m_Offx) / m_cellx,
+                Y = (pt.Y - m_Offy) / m_celly
+            };
             if (ptcell.X >= 0 && ptcell.X < m_numx && ptcell.Y >= 0 && ptcell.Y < m_numy)
             {
                 lock (m_queue.SyncRoot)
@@ -226,8 +229,10 @@ namespace CSLife
             //    Generations();
             if (m_Thread == null)
             {
-                m_Thread = new Thread(new ThreadStart(MyThread));
-                m_Thread.IsBackground = true;
+                m_Thread = new Thread(new ThreadStart(MyThread))
+                {
+                    IsBackground = true
+                };
                 m_Thread.Start();
                 while (!m_Thread.IsAlive)
                 {
@@ -279,7 +284,7 @@ namespace CSLife
             this.button1.Name = "button1";
             this.button1.TabIndex = 0;
             this.button1.Text = "button1";
-            this.button1.Click += new System.EventHandler(this.button1_Click);
+            this.button1.Click += new System.EventHandler(this.Button1_Click);
             // 
             // Form1
             // 
@@ -309,6 +314,17 @@ namespace CSLife
             Generations();
         }
 
+
+        async Task<int> DoSomething()
+        {
+            await Task.Run(() =>
+            {
+                var ptr = Marshal.AllocHGlobal(1000); // heapalloc
+                Marshal.FreeHGlobal(ptr);
+            });
+            return 0;
+        }
+
         public Form1()
         {
             //
@@ -320,23 +336,29 @@ namespace CSLife
             this.Left = 00;
             this.Top = 0;
             this.BackColor = Color.White;
-            m_box = new TextBox();
-            m_box.BackColor = Color.Cyan;
-            m_box.Text = "Hi";
-            m_box.Size = new Size(100, 100);
-            m_button = new Button();
-            m_button.BackColor = Color.Red;
-            m_button.Location = new Point(150, 00);
-            m_button.Text = "&Reset";
+            m_box = new TextBox
+            {
+                BackColor = Color.Cyan,
+                Text = "Hi",
+                Size = new Size(100, 100)
+            };
+            m_button = new Button
+            {
+                BackColor = Color.Red,
+                Location = new Point(150, 00),
+                Text = "&Reset"
+            };
             Controls.Add(m_button);
-            m_button.Click += new EventHandler(this.handlethebutton);
+            m_button.Click += new EventHandler(this.Handlethebutton);
 
             Controls.Add(m_box);
             var tmr = new System.Windows.Forms.Timer();
-            tmr.Tick += (o, e) =>
+            tmr.Tick += async (o, e) =>
               {
                   var ptr = Marshal.AllocHGlobal(1000); // heapalloc
                   Marshal.FreeHGlobal(ptr);
+
+                  await DoSomething();
               };
             tmr.Interval = (int)TimeSpan.FromMilliseconds(100).TotalMilliseconds;
             tmr.Enabled = true;
@@ -371,7 +393,7 @@ namespace CSLife
 
         }
 
-        private void button1_Click(object sender, System.EventArgs e)
+        private void Button1_Click(object sender, System.EventArgs e)
         {
             Generation();
         }
