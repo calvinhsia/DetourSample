@@ -24,5 +24,8 @@
     <ClCompile Include="DoSomeManagedCode.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DoSomeThreadingModelExperiments.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

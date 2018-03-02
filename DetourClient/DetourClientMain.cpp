@@ -19,6 +19,7 @@ CComAutoCriticalSection g_csHeap;
 
 void DoSomeManagedCode();
 
+void DoSomeThreadingModelExperiments();
 
 // must define this for 64 bit:
 #ifdef _WIN64
@@ -225,7 +226,12 @@ CLINKAGE void EXPORT StartVisualStudio()
         void *p = HeapAlloc(GetProcessHeap(), 0, 1000 + i);
         HeapFree(GetProcessHeap(), 0, p);
     }
+
+    DoSomeThreadingModelExperiments();
+
+
     DoSomeManagedCode();
+
 
     // now undo detour redirection, so detouring to stubs:
     HookInMyOwnVersion(false);
