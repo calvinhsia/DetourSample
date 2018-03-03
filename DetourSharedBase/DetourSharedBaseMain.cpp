@@ -67,6 +67,7 @@ DETOURFUNC(MessageBoxA);
 DETOURFUNC(GetModuleHandleA);
 DETOURFUNC(GetModuleFileNameA);
 DETOURFUNC(RtlAllocateHeap);
+DETOURFUNC(RtlFreeHeap);
 
 // the detoured functions for Registry
 DETOURFUNC(RegCreateKeyExW);
@@ -118,6 +119,17 @@ PVOID WINAPI MyStubRtlAllocateHeap(
 	auto redir = g_arrDetourTableEntry[DTF_RtlAllocateHeap].GetMethod();
 	return (reinterpret_cast<pfnRtlAllocateHeap>(redir))(hHeapHandle, dwFlags, nSize);
 }
+
+BOOL WINAPI MyStubRtlFreeHeap(
+	HANDLE hHeap,
+	DWORD dwFlags,
+	LPVOID lpMem
+)
+{
+	auto redir = g_arrDetourTableEntry[DTF_RtlFreeHeap].GetMethod();
+	return (reinterpret_cast<pfnRtlFreeHeap>(redir))(hHeap, dwFlags, lpMem);
+}
+
 
 
 LSTATUS APIENTRY MyStubRegCreateKeyExW(
@@ -289,6 +301,7 @@ private:
 		g_arrDetourTableEntry[DTF_GetModuleFileNameA].RealFunction = &GetModuleFileNameA;
 
 		g_arrDetourTableEntry[DTF_RtlAllocateHeap].RealFunction = (pfnRtlAllocateHeap)GetProcAddress(hmodNtDll, "RtlAllocateHeap");
+		g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction = (pfnRtlFreeHeap)GetProcAddress(hmodNtDll, "RtlFreeHeap");
 
 		g_arrDetourTableEntry[DTF_EnableScrollbar].RealFunction = &EnableScrollBar;
 
@@ -315,6 +328,7 @@ private:
 		ATTACH(&g_arrDetourTableEntry[DTF_GetModuleHandleA].RealFunction, MyStubGetModuleHandleA);
 		ATTACH(&g_arrDetourTableEntry[DTF_GetModuleFileNameA].RealFunction, MyStubGetModuleFileNameA);
 		ATTACH(&g_arrDetourTableEntry[DTF_RtlAllocateHeap].RealFunction, MyStubRtlAllocateHeap);
+		ATTACH(&g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction, MyStubRtlFreeHeap);
 
 
 		ATTACH(&g_arrDetourTableEntry[DTF_RegCreateKeyExW].RealFunction, MyStubRegCreateKeyExW);
@@ -335,6 +349,7 @@ private:
 		DETACH(&g_arrDetourTableEntry[DTF_GetModuleHandleA].RealFunction, MyStubGetModuleHandleA);
 		DETACH(&g_arrDetourTableEntry[DTF_GetModuleFileNameA].RealFunction, MyStubGetModuleFileNameA);
 		DETACH(&g_arrDetourTableEntry[DTF_RtlAllocateHeap].RealFunction, MyStubRtlAllocateHeap);
+		DETACH(&g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction, MyStubRtlFreeHeap);
 
 		DETACH(&g_arrDetourTableEntry[DTF_RegCreateKeyExW].RealFunction, MyStubRegCreateKeyExW);
 		DETACH(&g_arrDetourTableEntry[DTF_RegOpenKeyExW].RealFunction, MyStubRegOpenKeyExW);
