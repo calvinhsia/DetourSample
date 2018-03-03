@@ -209,8 +209,9 @@ LONGLONG GetNumStacksCollected()
     return nTotCnt;
 }
 
-void CollectStacks(int size)
+bool CollectStacks(int size)
 {
+	bool fDidCollectStack = false;
     if (!g_fReachedMemLimit)
     {
         CallStack callStack(g_NumFramesTocapture);
@@ -237,6 +238,7 @@ void CollectStacks(int size)
                 {
                     res->second.AddNewStack(callStack);
                 }
+				fDidCollectStack = true;
             }
         }
         catch (const std::bad_alloc&)
@@ -244,4 +246,5 @@ void CollectStacks(int size)
             g_fReachedMemLimit = true;
         }
     }
+	return fDidCollectStack;
 }
