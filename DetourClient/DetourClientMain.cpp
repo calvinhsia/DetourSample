@@ -26,6 +26,9 @@ void DoSomeThreadingModelExperiments();
 // must define this for 64 bit:
 #ifdef _WIN64
 #define USETLSINDEX 1
+#define nExtraBytes  0 // 8 CLR heap alloc alignment?
+#else
+#define nEextraBytes  0
 #endif _WIN64
 
 #if !USETLSINDEX
@@ -66,6 +69,7 @@ extern "C" DWORD _tls_index;
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 {
 	bool fDidCollectStack = false;
+
 	if (size > g_AllocSizeThresholdForStackCollection)
 	{
 #if !USETLSINDEX
@@ -127,13 +131,14 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 	}
 #ifndef _WIN64
 	_asm bailout:
+#else
 #endif _WIN64
-	auto pMem = Real_RtlAllocateHeap(hHeap, dwFlags, size + 1);
-	if (pMem != nullptr)
+	auto pMem = Real_RtlAllocateHeap(hHeap, dwFlags, size + nExtraBytes);
+	if (pMem != nullptr && nExtraBytes != 0)
 	{
-//		((PBYTE)pMem)[size] = fDidCollectStack;
+		((PBYTE)pMem)[0] = fDidCollectStack;
 	}
-	return pMem;
+	return (PBYTE)pMem + nExtraBytes;
 }
 
 BOOL WINAPI MyRtlFreeHeap(
@@ -142,6 +147,10 @@ BOOL WINAPI MyRtlFreeHeap(
 	LPVOID lpMem
 )
 {
+	if (lpMem != nullptr)
+	{
+
+	}
 	auto res = Real_RtlFreeHeap(hHeap, dwFlags, lpMem);
 	return res;
 }

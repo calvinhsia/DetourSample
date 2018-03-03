@@ -104,7 +104,7 @@ typedef unordered_map<UINT, CallStack,
     hash<UINT>,
     equal_to<UINT>,
     MySTLAlloc<pair<const UINT, CallStack>  >
-> mapStacks;
+> mapStacks; // stackhash=>CallStack
 
 // represents the stacks for a particular allocation size: e.g. the 100k allocations
 // if the stacks are identical, the count is bumped.
