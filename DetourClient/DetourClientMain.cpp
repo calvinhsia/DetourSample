@@ -28,7 +28,7 @@ void DoSomeThreadingModelExperiments();
 #define USETLSINDEX 1
 #define nExtraBytes  0 // 8 CLR heap alloc alignment?
 #else
-#define nEextraBytes  0
+#define nExtraBytes  0
 #endif _WIN64
 
 #if !USETLSINDEX
