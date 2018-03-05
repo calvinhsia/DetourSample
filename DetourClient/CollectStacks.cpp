@@ -88,7 +88,7 @@ struct CallStack
     {
         vecFrames.resize(NumFramesTocapture);
         int nFrames = RtlCaptureStackBackTrace(
-            /*FramesToSkip*/ 2,
+            /*FramesToSkip*/ 1,
             /*FramesToCapture*/ NumFramesTocapture,
             &vecFrames[0],
             &stackHash
@@ -214,11 +214,10 @@ bool CollectStacks(int size)
 	bool fDidCollectStack = false;
     if (!g_fReachedMemLimit)
     {
-        CallStack callStack(g_NumFramesTocapture);
-        CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
         try
         {
-            // try limiting to a fixed amount of mem. We could use VirtualAlloc for a 64k block (or multiple of 64)
+			CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
+			// try limiting to a fixed amount of mem. We could use VirtualAlloc for a 64k block (or multiple of 64)
             if (g_MyStlAllocTotalAlloc + 10 * (g_NumFramesTocapture * (int)(sizeof(PVOID))) > g_MyStlAllocLimit)
             {
                 g_fReachedMemLimit = true;
@@ -228,8 +227,10 @@ bool CollectStacks(int size)
                 g_nTotalAllocs++;
                 g_TotalAllocSize += (int)size;
 
-                // We want to use the size as the key: see if we've seen this key before
-                auto res = g_mapStacksByAllocSize.find(size);
+				CallStack callStack(g_NumFramesTocapture);
+
+				// We want to use the size as the key: see if we've seen this key before
+				auto res = g_mapStacksByAllocSize.find(size);
                 if (res == g_mapStacksByAllocSize.end())
                 {
                     g_mapStacksByAllocSize.insert(pair<UINT, StacksByAllocSize>((UINT)size, StacksByAllocSize(callStack)));
