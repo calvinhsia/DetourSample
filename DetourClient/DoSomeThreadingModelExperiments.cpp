@@ -6,49 +6,30 @@
 #include <atlcom.h>
 
 
-
-
-/*// CATLSimpleObject
-
-class ATL_NO_VTABLE CATLSimpleObject :
-    public CComObjectRootEx<CComMultiThreadModel>,
-    public CComCoClass<CATLSimpleObject, &CLSID_ATLSimpleObject>,
-{
-public:
-    CATLSimpleObject()
-    {
-    }
-
-    //DECLARE_REGISTRY_RESOURCEID(106)
-
-
-    BEGIN_COM_MAP(CATLSimpleObject)
-        COM_INTERFACE_ENTRY(IATLSimpleObject)
-    END_COM_MAP()
-
-
-
-    DECLARE_PROTECT_FINAL_CONSTRUCT()
-
-    HRESULT FinalConstruct()
-    {
-        return S_OK;
-    }
-
-    void FinalRelease()
-    {
-    }
-
-public:
-
-
-
-};
-
-OBJECT_ENTRY_AUTO(__uuidof(ATLSimpleObject), CATLSimpleObject)
-*/
-
 using namespace ATL;
+
+//Here is code that defines a simple interface, a COM object that implements that interface (can be apartment model or free threaded)
+
+void LogOutput(LPCWSTR wszFormat, ...)
+{
+    if (IsDebuggerPresent())
+    {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        WCHAR buf[1000];
+        swprintf_s(buf, L"%2d/%02d/%02d %2d:%02d:%02d:%03d thrd=%d ", st.wMonth, st.wDay, st.wYear - 2000, st.wHour,
+            st.wMinute, st.wSecond, st.wMilliseconds, GetCurrentThreadId());
+        OutputDebugStringW(buf);
+        va_list insertionArgs;
+        va_start(insertionArgs, wszFormat);
+        _vsnwprintf_s(buf, _countof(buf), wszFormat, insertionArgs);
+        va_end(insertionArgs);
+        OutputDebugStringW(buf);
+        OutputDebugStringW(L"\r\n");
+    }
+}
+
+
 
 
 // see https://blogs.msdn.microsoft.com/calvin_hsia/2014/02/26/see-how-often-your-code-runs-and-how-much-time-it-takes/
@@ -57,14 +38,16 @@ DEFINE_GUID(CLSID_MyObject,
     0xa7d0f17, 0x5c8d, 0x442b, 0xa3, 0x68, 0xd1, 0xdd, 0x36, 0x76, 0x71, 0xbb);
 
 struct __declspec(uuid("F58DA4BA-7971-4A08-BD21-584304A3E8CF"))
-IMyObject : IUnknown
+    IMyObject : IUnknown
 {
-    virtual HRESULT DoSomething()=0;
+    // a method with a standard marshallable parameter
+    virtual HRESULT STDMETHODCALLTYPE DoSomething() = 0;
+    virtual HRESULT STDMETHODCALLTYPE DoSomethingWithAString(BSTR strParam) = 0;
 };
 
-class CMyObject:
-    public CComObjectRootEx<CComSingleThreadModel>,
-    public CComCoClass<CMyObject,&CLSID_MyObject>,
+class CMyObject :
+    public CComObjectRootEx<CComMultiThreadModel>,
+    //    public CComCoClass<CMyObject, &CLSID_MyObject>, // cocreateinstance
     public IMyObject
 {
 public:
@@ -78,20 +61,25 @@ public:
 
     CMyObject()
     {
-        _ASSERT(true);
+        LogOutput(L"In CMyObj CTor");
     }
     ~CMyObject()
     {
-        _ASSERT(true);
+        LogOutput(L"In CMyObj DTor");
     }
-    HRESULT DoSomething(void) 
+    STDMETHOD(DoSomething)(void)
     {
-        _ASSERT(true);
+        LogOutput(L"In CMyObj DoSomething");
+        return S_OK;
+    }
+    STDMETHOD(DoSomethingWithAString)(BSTR strParam)
+    {
+        LogOutput(L"In CMyObj DoSomethingWithAString %s", strParam);
         return S_OK;
     }
 };
 
-OBJECT_ENTRY_AUTO(CLSID_MyObject, CMyObject);
+// OBJECT_ENTRY_AUTO(CLSID_MyObject, CMyObject); // cocreateinstance
 
 // define a class that represents this module
 class CMyObjectModule : public ATL::CAtlDllModuleT< CMyObjectModule >
@@ -115,34 +103,37 @@ CMyObjectModule _AtlModule;
 
 DWORD WINAPI MyThreadStartRoutine(PVOID param)
 {
-    CoInitializeEx(0, COINIT_MULTITHREADED); //COINIT_APARTMENTTHREADED and COINIT_MULTITHREADED 
-    CComObject<CMyObject>* pMyObj;
-    if (S_OK == CComObject<CMyObject>::CreateInstance(&pMyObj))
-    {
-        CComPtr<IMyObject> pIMyObj;
-        if (S_OK == pMyObj->QueryInterface(__uuidof(IMyObject), (LPVOID *)&pIMyObj))
-        {
-            pIMyObj->DoSomething();
-            IMyObject *praw = pIMyObj.Detach();
-            praw->AddRef();
-            praw->DoSomething();
-            praw->Release();
-            praw->Release();
-
-        }
-    }
-
-    CoUninitialize();
+    LogOutput(L"In MyThread routine");
+    //HRESULT hr = CoGetInterfaceAndReleaseStream(LPSTREAM(param), __uuidof(IMyObject), (LPVOID *)&pMyObj);
+    //_ASSERT_EXPR(hr == S_OK, L"Failed to CoGetInterfaceAndReleaseStream");
+    CComObject<CMyObject>* pMyObj = (CComObject<CMyObject>*)param;
+    pMyObj->DoSomething();
     return 0;
 }
 
 void DoSomeThreadingModelExperiments()
 {
+    CoInitializeEx(0, COINIT_MULTITHREADED); //COINIT_APARTMENTTHREADED and COINIT_MULTITHREADED 
+    CComObject<CMyObject>* pMyObj;
+    HRESULT hr;
+    hr = CComObject<CMyObject>::CreateInstance(&pMyObj);
+    _ASSERT_EXPR(hr == S_OK, L"Failed to createinstance");
+    CComPtr<IMyObject> pIMyObj;
+    hr = pMyObj->QueryInterface(__uuidof(IMyObject), (LPVOID *)&pIMyObj);
+    _ASSERT_EXPR(hr == S_OK, L"Failed to qi");
+
+    pIMyObj->DoSomethingWithAString(CComBSTR(L"foo"));
+    CComPtr<IStream> pStream;
+    //hr = CoMarshalInterThreadInterfaceInStream(__uuidof(IMyObject), pMyObj->_GetRawUnknown(), &pStream);
+    //// REGDB_E_IIDNOTREG Interface not registered 80040155
+    //_ASSERT_EXPR(hr == S_OK, L"Failed to marshal");
+
+
     DWORD dwThreadId;
     HANDLE hThread = CreateThread(/*LPSECURITY_ATTRIBUTES=*/NULL,
         /*dwStackSize=*/ NULL,
         &MyThreadStartRoutine,
-        /* lpThreadParameter*/0,
+        /* lpThreadParameter*/pMyObj,
         /*dwCreateFlags*/ 0, /// CREATE_SUSPENDED
         &dwThreadId
     );
@@ -157,5 +148,5 @@ void DoSomeThreadingModelExperiments()
         WaitForSingleObject(hThread, /*dwMilliseconds*/ INFINITE);
         auto err = GetLastError();
     }
-
+    CoUninitialize();
 }
