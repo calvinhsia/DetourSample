@@ -214,10 +214,10 @@ bool CollectStacks(int size)
 	bool fDidCollectStack = false;
     if (!g_fReachedMemLimit)
     {
-        CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
         try
         {
-            // try limiting to a fixed amount of mem. We could use VirtualAlloc for a 64k block (or multiple of 64)
+			CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
+			// try limiting to a fixed amount of mem. We could use VirtualAlloc for a 64k block (or multiple of 64)
             if (g_MyStlAllocTotalAlloc + 10 * (g_NumFramesTocapture * (int)(sizeof(PVOID))) > g_MyStlAllocLimit)
             {
                 g_fReachedMemLimit = true;
