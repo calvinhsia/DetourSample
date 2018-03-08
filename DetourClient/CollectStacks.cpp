@@ -17,18 +17,30 @@ LONG g_MyStlAllocLimit = 65536 * 20;
 int g_NumFramesTocapture = 20;
 bool g_fReachedMemLimit = false;
 
+#define USEMYSTLALLOC 
+//#define MYSTLALLOCSTATICHEAP
+//#define LIMITSTACKMEMORY
+
+#ifdef MYSTLALLOCSTATICHEAP
+static HANDLE m_hHeap = GetProcessHeap();
+#endif MYSTLALLOCSTATICHEAP
+
 template <class T>
 struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use-a-custom-allocator-for-your-stl-container/
 {
     typedef T value_type;
     MySTLAlloc()
     {
+#ifndef MYSTLALLOCSTATICHEAP
         m_hHeap = GetProcessHeap();
+#endif MYSTLALLOCSTATICHEAP
     }
     // A converting copy constructor:
     template<class U> MySTLAlloc(const MySTLAlloc<U>& other)
     {
+#ifndef MYSTLALLOCSTATICHEAP
         m_hHeap = other.m_hHeap;
+#endif MYSTLALLOCSTATICHEAP
     }
     template<class U> bool operator==(const MySTLAlloc<U>&) const
     {
@@ -49,10 +61,13 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
             throw std::bad_array_new_length();
         }
         unsigned nSize = (UINT)n * sizeof(T);
+#ifdef LIMITSTACKMEMORY
+
         if (g_MyStlAllocTotalAlloc + (int)nSize >= g_MyStlAllocLimit)
         {
             throw std::bad_alloc();
         }
+#endif LIMITSTACKMEMORY
         InterlockedAdd(&g_MyStlAllocTotalAlloc, nSize);
         void *pv;
         if (Real_RtlAllocateHeap == nullptr)
@@ -74,11 +89,17 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
         InterlockedAdd(&g_MyStlAllocTotalAlloc, -((int)size));
         HeapFree(m_hHeap, 0, p);
     }
+#ifndef MYSTLALLOCSTATICHEAP
     HANDLE m_hHeap; // a heap to use to allocate our stuff. If 0, use VSAssert private debug heap
+#endif MYSTLALLOCSTATICHEAP
 };
 
 
-typedef vector<PVOID, MySTLAlloc<PVOID>> vecFrames;
+typedef vector<PVOID
+#ifdef USEMYSTLALLOC
+    , MySTLAlloc<PVOID>
+#endif USEMYSTLALLOC
+> vecFrames;
 
 // Collects the callstack and calculates the stack hash
 // represents a single call stack and how often the identical stack occurs
@@ -100,10 +121,13 @@ struct CallStack
     vecFrames vecFrames; // the stack frames
 };
 
-typedef unordered_map<UINT, CallStack,
+typedef unordered_map<UINT, CallStack
+#ifdef USEMYSTLALLOC
+    ,
     hash<UINT>,
     equal_to<UINT>,
-    MySTLAlloc<pair<const UINT, CallStack>  >
+    MySTLAlloc<pair<const UINT, CallStack> >
+#endif USEMYSTLALLOC
 > mapStacks; // stackhash=>CallStack
 
 // represents the stacks for a particular allocation size: e.g. the 100k allocations
@@ -140,10 +164,13 @@ struct StacksByAllocSize
 
 };
 
-typedef unordered_map<UINT, StacksByAllocSize,
+typedef unordered_map<UINT, StacksByAllocSize
+#ifdef USEMYSTLALLOC
+    ,
     hash<UINT>,
     equal_to<UINT>,
     MySTLAlloc<pair<const UINT, StacksByAllocSize>  >
+#endif USEMYSTLALLOC
 > mapStacksByAllocSize;
 
 // map the Size of an alloc to all the stacks that allocated that size.
@@ -209,28 +236,31 @@ LONGLONG GetNumStacksCollected()
     return nTotCnt;
 }
 
-bool CollectStacks(int size)
+bool CollectStack(int size, PVOID pMem)
 {
-	bool fDidCollectStack = false;
+    bool fDidCollectStack = false;
     if (!g_fReachedMemLimit)
     {
         try
         {
-			CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
-			// try limiting to a fixed amount of mem. We could use VirtualAlloc for a 64k block (or multiple of 64)
+            CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
+#ifdef LIMITSTACKMEMORY
+            // try limiting to a fixed amount of mem. We could use VirtualAlloc for a 64k block (or multiple of 64)
             if (g_MyStlAllocTotalAlloc + 10 * (g_NumFramesTocapture * (int)(sizeof(PVOID))) > g_MyStlAllocLimit)
             {
                 g_fReachedMemLimit = true;
             }
             else
+#endif LIMITSTACKMEMORY
+
             {
                 g_nTotalAllocs++;
                 g_TotalAllocSize += (int)size;
 
-				CallStack callStack(g_NumFramesTocapture);
+                CallStack callStack(g_NumFramesTocapture);
 
-				// We want to use the size as the key: see if we've seen this key before
-				auto res = g_mapStacksByAllocSize.find(size);
+                // We want to use the size as the key: see if we've seen this key before
+                auto res = g_mapStacksByAllocSize.find(size);
                 if (res == g_mapStacksByAllocSize.end())
                 {
                     g_mapStacksByAllocSize.insert(pair<UINT, StacksByAllocSize>((UINT)size, StacksByAllocSize(callStack)));
@@ -239,7 +269,7 @@ bool CollectStacks(int size)
                 {
                     res->second.AddNewStack(callStack);
                 }
-				fDidCollectStack = true;
+                fDidCollectStack = true;
             }
         }
         catch (const std::bad_alloc&)
@@ -247,5 +277,16 @@ bool CollectStacks(int size)
             g_fReachedMemLimit = true;
         }
     }
-	return fDidCollectStack;
+    return fDidCollectStack;
+}
+
+bool UnCollectStack(int size)
+{
+    bool IsTracked = false;
+    auto res = g_mapStacksByAllocSize.find(size);
+    if (res != g_mapStacksByAllocSize.end())
+    {
+        IsTracked = true;
+    }
+    return IsTracked;
 }

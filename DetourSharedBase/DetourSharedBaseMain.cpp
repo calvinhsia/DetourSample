@@ -38,20 +38,19 @@ DetourTableEntry g_arrDetourTableEntry[DTF_MAX];
 char *g_szArch = "x86 32 bit";
 /*
 STUBMACRO defines ASM code that takes the parameter as a DTF enum and looks up the DetourTableEntry in the array
-g_arrDetourTableEntry.
+g_arrDetourTableEntry. Hotpath has minimal branching
 It then gets the redirected entry, and if it's 0, gets the real entry and does a JMP to that entry
 */
 #define STUBMACRO(DTF)   \
 {                        \
-	_asm mov ecx, (SIZE DetourTableEntry) * DTF /* calculate the index into the array*/\
-	_asm mov edx, offset g_arrDetourTableEntry /*Get the base table address.*/ \
-	_asm add edx, ecx       /*now ebx points to the table entry*/ \
-	_asm mov eax, [edx+4]   /* look at the 2nd entry in the table (the redirected value)*/ \
-	_asm cmp eax, 0         /* see if it's been set */ \
-	_asm jne b1             /* if it's not zero, jump to b1*/ \
-	_asm mov eax, [edx]     /* get the real value of the detour*/ \
-	_asm b1:                /* jmp label */ \
-	_asm jmp eax            /* now jump to the target*/ \
+	_asm mov edx, (SIZE DetourTableEntry) * DTF /* calculate the index into the array*/\
+	_asm add edx, offset g_arrDetourTableEntry /*add the base table address.*/ \
+	_asm mov eax, [edx+4]  /* look at the 2nd entry in the table (the redirected value)*/ \
+	_asm cmp eax,0         /* cmp to 0*/ \
+	_asm je b1             /* if it's zero, jump to b1*/ \
+	_asm jmp eax           /* now jump to the redirected*/ \
+	_asm b1:               /* jmp label */ \
+    _asm jmp DWORD PTR [edx] /*jmp to the real */\
 }
 
 /*
@@ -67,6 +66,7 @@ DETOURFUNC(MessageBoxA);
 DETOURFUNC(GetModuleHandleA);
 DETOURFUNC(GetModuleFileNameA);
 DETOURFUNC(RtlAllocateHeap);
+DETOURFUNC(HeapReAlloc);
 DETOURFUNC(RtlFreeHeap);
 
 // the detoured functions for Registry
@@ -120,6 +120,17 @@ PVOID WINAPI MyStubRtlAllocateHeap(
 	return (reinterpret_cast<pfnRtlAllocateHeap>(redir))(hHeapHandle, dwFlags, nSize);
 }
 
+BOOL WINAPI MyStubHeapReAlloc(
+    HANDLE hHeap,
+    DWORD dwFlags,
+    LPVOID lpMem,
+    SIZE_T dwBytes
+)
+{
+    auto redir = g_arrDetourTableEntry[DTF_HeapReAlloc].GetMethod();
+    return (reinterpret_cast<pfnHeapReAlloc>(redir))(hHeap, dwFlags, lpMem, dwBytes);
+}
+
 BOOL WINAPI MyStubRtlFreeHeap(
 	HANDLE hHeap,
 	DWORD dwFlags,
@@ -129,8 +140,6 @@ BOOL WINAPI MyStubRtlFreeHeap(
 	auto redir = g_arrDetourTableEntry[DTF_RtlFreeHeap].GetMethod();
 	return (reinterpret_cast<pfnRtlFreeHeap>(redir))(hHeap, dwFlags, lpMem);
 }
-
-
 
 LSTATUS APIENTRY MyStubRegCreateKeyExW(
 	__in        HKEY hKey,
@@ -301,7 +310,8 @@ private:
 		g_arrDetourTableEntry[DTF_GetModuleFileNameA].RealFunction = &GetModuleFileNameA;
 
 		g_arrDetourTableEntry[DTF_RtlAllocateHeap].RealFunction = (pfnRtlAllocateHeap)GetProcAddress(hmodNtDll, "RtlAllocateHeap");
-		g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction = (pfnRtlFreeHeap)GetProcAddress(hmodNtDll, "RtlFreeHeap");
+        g_arrDetourTableEntry[DTF_HeapReAlloc].RealFunction = HeapReAlloc;// (pfnRtlFreeHeap)GetProcAddress(hmodNtDll, "HeapReAlloc");
+        g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction = (pfnRtlFreeHeap)GetProcAddress(hmodNtDll, "RtlFreeHeap");
 
 		g_arrDetourTableEntry[DTF_EnableScrollbar].RealFunction = &EnableScrollBar;
 
@@ -329,6 +339,7 @@ private:
 		ATTACH(&g_arrDetourTableEntry[DTF_GetModuleFileNameA].RealFunction, MyStubGetModuleFileNameA);
 		ATTACH(&g_arrDetourTableEntry[DTF_RtlAllocateHeap].RealFunction, MyStubRtlAllocateHeap);
 		ATTACH(&g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction, MyStubRtlFreeHeap);
+        ATTACH(&g_arrDetourTableEntry[DTF_HeapReAlloc].RealFunction, MyStubHeapReAlloc);
 
 
 		ATTACH(&g_arrDetourTableEntry[DTF_RegCreateKeyExW].RealFunction, MyStubRegCreateKeyExW);
@@ -349,7 +360,8 @@ private:
 		DETACH(&g_arrDetourTableEntry[DTF_GetModuleHandleA].RealFunction, MyStubGetModuleHandleA);
 		DETACH(&g_arrDetourTableEntry[DTF_GetModuleFileNameA].RealFunction, MyStubGetModuleFileNameA);
 		DETACH(&g_arrDetourTableEntry[DTF_RtlAllocateHeap].RealFunction, MyStubRtlAllocateHeap);
-		DETACH(&g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction, MyStubRtlFreeHeap);
+        DETACH(&g_arrDetourTableEntry[DTF_HeapReAlloc].RealFunction, MyStubHeapReAlloc);
+        DETACH(&g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction, MyStubRtlFreeHeap);
 
 		DETACH(&g_arrDetourTableEntry[DTF_RegCreateKeyExW].RealFunction, MyStubRegCreateKeyExW);
 		DETACH(&g_arrDetourTableEntry[DTF_RegOpenKeyExW].RealFunction, MyStubRegOpenKeyExW);
@@ -395,6 +407,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
 	{
+        HeapSetInformation(GetProcessHeap(), HeapEnableTerminationOnCorruption, nullptr, 0);
 		SharedDetours sharedDetours;
 
 		MessageBoxA(0, "Detours in place, calling unredirected version of MessageboxA", g_szArch, 0);

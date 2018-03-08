@@ -114,6 +114,13 @@ typedef PVOID(WINAPI *pfnRtlAllocateHeap)(
 	SIZE_T size
 	);
 
+typedef LPVOID(WINAPI *pfnHeapReAlloc)(
+    HANDLE hHeap,
+    DWORD dwFlags,
+    LPVOID lpMem,
+    SIZE_T dwBytes
+    );
+
 typedef BOOL(WINAPI *pfnRtlFreeHeap)(
 	HANDLE hHeap,
 	DWORD dwFlags,
@@ -182,7 +189,8 @@ typedef enum {
 	DTF_GetModuleFileNameA,	/*sample*/
 	DTF_MessageBoxA,		/*sample*/
 	DTF_RtlAllocateHeap,    /*sample*/
-	DTF_RtlFreeHeap,        /*sample*/
+    DTF_HeapReAlloc,        /*sample*/
+    DTF_RtlFreeHeap,        /*sample*/
 
 	DTF_RegCreateKeyExW,	/*vscommon\registrydetouring\vsdetour.cpp*/
 	DTF_RegOpenKeyExW,		/*vscommon\registrydetouring\vsdetour.cpp*/
