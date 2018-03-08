@@ -1,6 +1,10 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="Generated Files">
+      <UniqueIdentifier>{71ec5213-1df8-491d-95a0-b6986658531e}</UniqueIdentifier>
+      <SourceControlFiles>False</SourceControlFiles>
+    </Filter>
     <Filter Include="Source Files">
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
       <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
@@ -15,20 +19,19 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="DetourClientMain.cpp">
+    <None Include="..\ATLProject1\ATLProject1ps.def">
       <Filter>Source Files</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\ATLProject1\ATLProject1_i.c">
+      <Filter>Generated Files</Filter>
     </ClCompile>
-    <ClCompile Include="CollectStacks.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="..\ATLProject1\ATLProject1_p.c">
+      <Filter>Generated Files</Filter>
     </ClCompile>
-    <ClCompile Include="DoSomeManagedCode.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="DoSomeThreadingModelExperiments.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="CreateComObject.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="..\ATLProject1\dlldata.c">
+      <Filter>Generated Files</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

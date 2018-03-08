@@ -28,6 +28,8 @@ void DoSomeManagedCode();
 
 void DoSomeThreadingModelExperiments();
 
+
+void CreateComObject();
 #define nExtraBytes  0 // 8 CLR heap alloc alignment?
 #define MySignature ((DWORD)0xDEFACED1)
 
@@ -333,6 +335,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 
     DoSomeThreadingModelExperiments();
 
+    CreateComObject();
 
     DoSomeManagedCode();
 

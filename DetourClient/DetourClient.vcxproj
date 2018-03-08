@@ -210,6 +210,7 @@
     <ClCompile Include="DetourClientMain.cpp" />
     <ClCompile Include="DoSomeManagedCode.cpp" />
     <ClCompile Include="DoSomeThreadingModelExperiments.cpp" />
+    <ClCompile Include="CreateComObject.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
