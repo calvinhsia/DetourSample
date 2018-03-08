@@ -120,7 +120,7 @@ PVOID WINAPI MyStubRtlAllocateHeap(
 	return (reinterpret_cast<pfnRtlAllocateHeap>(redir))(hHeapHandle, dwFlags, nSize);
 }
 
-BOOL WINAPI MyStubHeapReAlloc(
+PVOID WINAPI MyStubHeapReAlloc(
     HANDLE hHeap,
     DWORD dwFlags,
     LPVOID lpMem,

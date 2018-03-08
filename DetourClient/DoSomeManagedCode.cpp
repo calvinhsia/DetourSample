@@ -206,7 +206,11 @@ void DoSomeManagedCode()
     WCHAR szExt[MAX_PATH];
 
     _wsplitpath_s(fname, szDrive, szDir, szName, szExt);
-    _wmakepath_s(fname,szDrive,szDir,L"..\\cslife",L".exe");
+#if _WIN64
+    _wmakepath_s(fname, szDrive, szDir, L"..\\..\\cslife", L".exe");
+#else
+    _wmakepath_s(fname, szDrive, szDir, L"..\\cslife", L".exe");
+#endif
     
     StartClrCode(fname, L"CSLife.Form1", L"ShowDialog");
 }

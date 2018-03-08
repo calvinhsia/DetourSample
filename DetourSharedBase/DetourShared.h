@@ -114,7 +114,7 @@ typedef PVOID(WINAPI *pfnRtlAllocateHeap)(
 	SIZE_T size
 	);
 
-typedef LPVOID(WINAPI *pfnHeapReAlloc)(
+typedef PVOID(WINAPI *pfnHeapReAlloc)(
     HANDLE hHeap,
     DWORD dwFlags,
     LPVOID lpMem,

@@ -134,7 +134,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
             if (nExtraBytes >= 8)
             {
                 ((PDWORD)pMem)[0] = MySignature;
-                ((PDWORD)pMem)[1] = size;
+                ((PDWORD)pMem)[1] = (DWORD)size;
             }
             fDidCollectStack = CollectStack((int)size, pMem);
             pMem = (PBYTE)pMem + nExtraBytes;
@@ -323,7 +323,7 @@ CLINKAGE void EXPORT StartVisualStudio()
     auto h = GetModuleHandleA(0);
     string buff(MAX_PATH,'\0');
 
-    GetModuleFileNameA(0, &buff[0], buff.length());
+    GetModuleFileNameA(0, &buff[0], (DWORD)buff.length());
     //buff.resize(strlen(&buff[0]));
 
     MessageBoxA(0, buff.c_str(), "Calling the WinApi version of MessageboxA", 0);
@@ -343,7 +343,7 @@ CLINKAGE void EXPORT StartVisualStudio()
     // now undo detour redirection, so detouring to stubs:
     HookInMyOwnVersion(false);
 
-    GetModuleFileNameA(0, &buff[0], buff.length());
+    GetModuleFileNameA(0, &buff[0], (DWORD)buff.length());
 
     LONGLONG nStacksCollected = GetNumStacksCollected();
     sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d", g_nTotalAllocs, g_TotalAllocSize, nStacksCollected, g_MyStlAllocTotalAlloc);
