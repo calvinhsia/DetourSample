@@ -201,6 +201,8 @@ typedef enum {
 	DTF_PeekMessageA,       /*vscommon\testtools\vslog\ResponseTime\VSResponsiveness.cpp */
 
 
+    DTF_NdrClientCall2,     /*RPC*/
+
 	DTF_MAX
 } tagDetouredFunctions;
 

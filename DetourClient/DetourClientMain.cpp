@@ -7,26 +7,22 @@
 #include <atlcom.h>
 
 #include <string>
+#include "DetourClientMain.h"
+
+
 using namespace std;
 
-bool CollectStack(int size, PVOID pMem);
-bool UnCollectStack(int size);
-LONGLONG GetNumStacksCollected();
 int g_tlsIndex;
 pfnRtlAllocateHeap Real_RtlAllocateHeap;
 pfnHeapReAlloc Real_HeapReAlloc;
 pfnRtlFreeHeap Real_RtlFreeHeap;
 
 SIZE_T g_AllocSizeThresholdForStackCollection = 0;// 1024 * 1024;
-extern int g_nTotalAllocs;
-extern LONGLONG g_TotalAllocSize;
-extern LONG g_MyStlAllocTotalAlloc;
+
+DWORD g_dwMainThread;
 
 CComAutoCriticalSection g_csHeap;
 
-void DoSomeManagedCode();
-
-void DoSomeThreadingModelExperiments();
 
 
 void CreateComObject();
@@ -136,7 +132,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
                 ((PDWORD)pMem)[0] = MySignature;
                 ((PDWORD)pMem)[1] = (DWORD)size;
             }
-            fDidCollectStack = CollectStack((int)size, pMem);
+            fDidCollectStack = CollectStack(StackTypeHeapAlloc, (DWORD)size);
             pMem = (PBYTE)pMem + nExtraBytes;
             SETRECURDONE;
         }
@@ -155,6 +151,19 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
     }
     return pMem;
 }
+
+
+#ifndef _WIN64
+PVOID Real_NdrClientCall2;
+_declspec(naked) void MyNdrClientCall2()
+{
+    _asm push 0 //
+    _asm push StackTypeRpc //Push parms in reverse order
+    _asm call CollectStack
+    _asm add esp, 8
+    _asm jmp Real_NdrClientCall2
+}
+#endif _WIN64
 
 PVOID WINAPI MyHeapReAlloc( // no re-new
     HANDLE hHeap,
@@ -205,7 +214,7 @@ BOOL WINAPI MyRtlFreeHeap(
                 // Modern memory allocators often allocate in size categories, and, for space efficiency reasons, do not store the size of the object near the object. 
                 // Deallocation then requires searching for the size category store that contains the object. This search can be expensive, particularly as the search data structures are often not in memory caches. 
                 DWORD dwSizeAlloc = ((PDWORD)pBlock)[1];
-                if (UnCollectStack(dwSizeAlloc))
+                if (UnCollectStack(StackTypeHeapAlloc, dwSizeAlloc))
                 {
                     fIsTrackedBlk = true;
                     lpMem = pBlock;
@@ -285,6 +294,11 @@ void HookInMyOwnVersion(BOOL fHook)
         res = fnRedirectDetour(DTF_RtlFreeHeap, MyRtlFreeHeap, (PVOID *)&Real_RtlFreeHeap);
         _ASSERT_EXPR(res == S_OK, L"Redirecting detour to free heap");
 
+#ifndef _WIN64
+        res = fnRedirectDetour(DTF_NdrClientCall2, MyNdrClientCall2, (PVOID*)&Real_NdrClientCall2);
+        _ASSERT_EXPR(res == S_OK, L"Redirecting detour to MyNdrClientCall2");
+#endif _WIN64
+
     }
     else
     {
@@ -314,11 +328,17 @@ void HookInMyOwnVersion(BOOL fHook)
         {
             _ASSERT_EXPR(false, L"Failed to redirect detour");
         }
+        if (fnRedirectDetour(DTF_NdrClientCall2, nullptr, nullptr) != S_OK)
+        {
+            _ASSERT_EXPR(false, L"Failed to redirect detour");
+        }
     }
 }
 
 CLINKAGE void EXPORT StartVisualStudio()
 {
+    g_dwMainThread = GetCurrentThreadId();
+
     HookInMyOwnVersion(true);
     auto h = GetModuleHandleA(0);
     string buff(MAX_PATH,'\0');

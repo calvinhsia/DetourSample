@@ -3,6 +3,7 @@
 #include "vector"
 #include "unordered_map"
 #include "atlbase.h"
+#include "DetourClientMain.h"
 
 using namespace std;
 
@@ -94,6 +95,25 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 #endif MYSTLALLOCSTATICHEAP
 };
 
+template <class T>
+inline void hash_combine(std::size_t & seed, const T & v)
+{
+    std::hash<T> hasher;
+    seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+// need a hash function for pair<int,int>
+template<typename S, typename T> struct hash<pair<S, T>>
+{
+    inline size_t operator()(const pair<S, T> & v) const
+    {
+        size_t seed = 0;
+        ::hash_combine(seed, v.first);
+        ::hash_combine(seed, v.second);
+        return seed;
+    }
+};
+
 
 typedef vector<PVOID
 #ifdef USEMYSTLALLOC
@@ -105,12 +125,12 @@ typedef vector<PVOID
 // represents a single call stack and how often the identical stack occurs
 struct CallStack
 {
-    CallStack(int NumFramesTocapture) : cnt(1)
+    CallStack(int NumFramesToSkip) : cnt(1)
     {
-        vecFrames.resize(NumFramesTocapture);
+        vecFrames.resize(g_NumFramesTocapture);
         int nFrames = RtlCaptureStackBackTrace(
-            /*FramesToSkip*/ 1,
-            /*FramesToCapture*/ NumFramesTocapture,
+            /*FramesToSkip*/ NumFramesToSkip,
+            /*FramesToCapture*/ g_NumFramesTocapture,
             &vecFrames[0],
             &stackHash
         );
@@ -128,13 +148,13 @@ typedef unordered_map<UINT, CallStack
     equal_to<UINT>,
     MySTLAlloc<pair<const UINT, CallStack> >
 #endif USEMYSTLALLOC
-> mapStacks; // stackhash=>CallStack
+> mapStackHashToStack; // stackhash=>CallStack
 
-// represents the stacks for a particular allocation size: e.g. the 100k allocations
+// represents the stacks for a particular stack type : e.g. the 100k allocations
 // if the stacks are identical, the count is bumped.
-struct StacksByAllocSize
+struct StacksForStackType
 {
-    StacksByAllocSize(CallStack stack)
+    StacksForStackType(CallStack stack)
     {
         AddNewStack(stack);
     }
@@ -160,22 +180,24 @@ struct StacksByAllocSize
         return tot;
     }
     // map of stack hash to CalLStack
-    mapStacks _stacks;
+    mapStackHashToStack _stacks;
 
 };
 
-typedef unordered_map<UINT, StacksByAllocSize
+typedef pair<StackType, UINT> mapKey;
+
+typedef unordered_map<mapKey, StacksForStackType
 #ifdef USEMYSTLALLOC
     ,
-    hash<UINT>,
-    equal_to<UINT>,
-    MySTLAlloc<pair<const UINT, StacksByAllocSize>  >
+    hash<mapKey>,
+    equal_to<mapKey>,
+    MySTLAlloc<pair<const mapKey, StacksForStackType>  >
 #endif USEMYSTLALLOC
-> mapStacksByAllocSize;
+> mapStacksByStackType;
 
 // map the Size of an alloc to all the stacks that allocated that size.
 // note: if we're looking for all allocs of a specific size (e.g. 1Mb), then no need for a map by size (because all keys will be the same): more efficient to just use a mapStacks
-mapStacksByAllocSize g_mapStacksByAllocSize;
+mapStacksByStackType g_mapStacksByStackType;
 
 
 LONGLONG GetNumStacksCollected()
@@ -187,20 +209,24 @@ LONGLONG GetNumStacksCollected()
     g_fReachedMemLimit = false;
     g_MyStlAllocLimit *= 2; // double mem used: we're done with detouring
     auto save_g_MyStlAllocTotalAlloc = g_MyStlAllocTotalAlloc;
-    for (auto entry : g_mapStacksByAllocSize)
+    for (auto entry : g_mapStacksByStackType)
     {
         auto stackBySize = entry.second;
-        auto sizeAlloc = entry.first;
-        auto cnt = stackBySize.GetTotalNumStacks(); // to see the output, use a tracepoint (breakpoint action): output: sizeAlloc={sizeAlloc} cnt={cnt}
-        nTotSize += sizeAlloc * cnt;
-        nTotCnt += cnt;
-        for (auto stk : entry.second._stacks)
+        auto key = entry.first;
+        if (key.first == StackTypeHeapAlloc)
         {
-            nUniqueStacks++;
-            for (auto frm : stk.second.vecFrames)
+            auto sizeAlloc = key.second;
+            auto cnt = stackBySize.GetTotalNumStacks(); // to see the output, use a tracepoint (breakpoint action): output: sizeAlloc={sizeAlloc} cnt={cnt}
+            nTotSize += sizeAlloc * cnt;
+            nTotCnt += cnt;
+            for (auto stk : entry.second._stacks)
             {
-                nFrames++;
-                auto f = frm;  // output {frm}
+                nUniqueStacks++;
+                for (auto frm : stk.second.vecFrames)
+                {
+                    nFrames++;
+                    auto f = frm;  // output {frm}
+                }
             }
         }
     }
@@ -236,7 +262,7 @@ LONGLONG GetNumStacksCollected()
     return nTotCnt;
 }
 
-bool CollectStack(int size, PVOID pMem)
+bool CollectStack(StackType stackType, DWORD stackParam)
 {
     bool fDidCollectStack = false;
     if (!g_fReachedMemLimit)
@@ -254,16 +280,36 @@ bool CollectStack(int size, PVOID pMem)
 #endif LIMITSTACKMEMORY
 
             {
-                g_nTotalAllocs++;
-                g_TotalAllocSize += (int)size;
-
-                CallStack callStack(g_NumFramesTocapture);
+                int numFramesToSkip = 1;
+                switch (stackType)
+                {
+                case StackTypeHeapAlloc:
+                    g_nTotalAllocs++;
+                    g_TotalAllocSize += (int)stackParam;
+                    break;
+                case StackTypeRpc:
+                    // calculate the parm here for Rpc because easier than doing it in inline asm
+                    if (GetCurrentThreadId() == g_dwMainThread)
+                    {
+                        stackParam = 0;
+                    }
+                    else
+                    {
+                        stackParam = 1;
+                    }
+                    numFramesToSkip = 1;
+                    break;
+                default:
+                    break;
+                }
+                CallStack callStack(numFramesToSkip);
 
                 // We want to use the size as the key: see if we've seen this key before
-                auto res = g_mapStacksByAllocSize.find(size);
-                if (res == g_mapStacksByAllocSize.end())
+                mapKey key(stackType, stackParam);
+                auto res = g_mapStacksByStackType.find(key);
+                if (res == g_mapStacksByStackType.end())
                 {
-                    g_mapStacksByAllocSize.insert(pair<UINT, StacksByAllocSize>((UINT)size, StacksByAllocSize(callStack)));
+                    g_mapStacksByStackType.insert(pair<mapKey, StacksForStackType>(key, StacksForStackType(callStack)));
                 }
                 else
                 {
@@ -280,11 +326,12 @@ bool CollectStack(int size, PVOID pMem)
     return fDidCollectStack;
 }
 
-bool UnCollectStack(int size)
+bool UnCollectStack(StackType stackType, DWORD stackParam)
 {
     bool IsTracked = false;
-    auto res = g_mapStacksByAllocSize.find(size);
-    if (res != g_mapStacksByAllocSize.end())
+    mapKey key(stackType, stackParam);
+    auto res = g_mapStacksByStackType.find(key);
+    if (res != g_mapStacksByStackType.end())
     {
         IsTracked = true;
     }
