@@ -160,7 +160,7 @@ _declspec(naked) void MyNdrClientCall2()
     _asm push 0 //
     _asm push StackTypeRpc //Push parms in reverse order
     _asm call CollectStack
-    _asm add esp, 8
+//    _asm add esp, 8 // for stdcall, callee cleans stack
     _asm jmp Real_NdrClientCall2
 }
 #endif _WIN64

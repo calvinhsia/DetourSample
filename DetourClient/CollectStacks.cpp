@@ -262,7 +262,7 @@ LONGLONG GetNumStacksCollected()
     return nTotCnt;
 }
 
-bool CollectStack(StackType stackType, DWORD stackParam)
+bool _stdcall CollectStack(StackType stackType, DWORD stackParam)
 {
     bool fDidCollectStack = false;
     if (!g_fReachedMemLimit)
