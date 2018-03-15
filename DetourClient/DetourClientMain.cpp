@@ -177,6 +177,8 @@ DWORD _stdcall getticks()
 }
 
 
+//detouring NdrClientCall2 is a little complicated because it's CDECL. Wrapping (running code before/after the call to get elapsed time) is thus more complex
+
 PVOID Real_NdrClientCall2;
 _declspec(naked) void DetourNdrClientCall2()
 {
@@ -262,7 +264,7 @@ BOOL WINAPI MyRtlFreeHeap(
     return res;
 }
 
-pfnMessageBoxA g_real_MessageBoxA;
+decltype(&MessageBoxA) g_real_MessageBoxA;
 int WINAPI MyMessageBoxA(
     _In_opt_ HWND hWnd,
     _In_opt_ LPCSTR lpText,
@@ -275,13 +277,13 @@ int WINAPI MyMessageBoxA(
     return g_real_MessageBoxA(hWnd, lpText, lpCaption, uType);
 }
 
-pfnGetModuleHandle g_real_GetModuleHandleA;
+decltype(&GetModuleHandleA) g_real_GetModuleHandleA;
 HMODULE WINAPI MyGetModuleHandleA(LPCSTR lpModuleName)
 {
     return g_real_GetModuleHandleA(lpModuleName);
 }
 
-pfnGetModuleFileNameA g_real_GetModuleFileNameA;
+decltype(&GetModuleFileNameA) g_real_GetModuleFileNameA;
 DWORD WINAPI MyGetModuleFileNameA(
     _In_opt_ HMODULE hModule,
     _Out_writes_to_(nSize, ((return < nSize) ? (return +1) : nSize)) LPSTR lpFilename,

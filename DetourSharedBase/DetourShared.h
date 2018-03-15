@@ -93,20 +93,7 @@ CLINKAGE HRESULT EXPORT UnlockDetourTable();
 
 /*Start of typedefs for functions that are detoured*/
 
-typedef int (WINAPI *pfnMessageBoxA)(
-	_In_opt_ HWND hWnd,
-	_In_opt_ LPCSTR lpText,
-	_In_opt_ LPCSTR lpCaption,
-	_In_ UINT uType);
 
-typedef HMODULE(WINAPI *pfnGetModuleHandle)(_In_opt_ LPCSTR lpModuleName);
-
-
-typedef DWORD(WINAPI *pfnGetModuleFileNameA)(
-	_In_opt_ HMODULE hModule,
-	_Out_writes_to_(nSize, ((return < nSize) ? (return +1) : nSize)) LPSTR lpFilename,
-	_In_ DWORD nSize
-	);
 
 typedef PVOID(WINAPI *pfnRtlAllocateHeap)(
 	HANDLE hHeapHandle,
@@ -126,57 +113,6 @@ typedef BOOL(WINAPI *pfnRtlFreeHeap)(
 	DWORD dwFlags,
 	LPVOID lpMem
 	);
-
-
-typedef LSTATUS(APIENTRY *pfnRegCreateKeyExW)(
-	__in        HKEY hKey,
-	__in        LPCWSTR lpSubKey,
-	__reserved  DWORD Reserved,
-	__in_opt  LPWSTR lpClass,
-	__in        DWORD dwOptions,
-	__in        REGSAM samDesired,
-	__in_opt  CONST LPSECURITY_ATTRIBUTES lpSecurityAttributes,
-	__out       PHKEY phkResult,
-	__out_opt LPDWORD lpdwDisposition
-	);
-
-
-typedef LSTATUS(APIENTRY *pfnRegOpenKeyExW)(
-	__in HKEY hKey,
-	__in_opt LPCWSTR lpSubKey,
-	__in_opt DWORD dwOptions,
-	__in REGSAM samDesired,
-	__out PHKEY phkResult
-	);
-
-typedef LSTATUS(APIENTRY *pfnRegOpenKeyExA)(
-	__in HKEY hKey,
-	__in_opt LPCTSTR lpSubKey,
-	__in_opt DWORD dwOptions,
-	__in REGSAM samDesired,
-	__out PHKEY phkResult
-	);
-
-
-
-typedef BOOL (WINAPI *pfnEnableScrollBar)(
-	_In_ HWND hWnd,
-	_In_ UINT wSBflags,
-	_In_ UINT wArrows);
-
-
-
-
-
-
-typedef BOOL (WINAPI *pfnPeekMessageA)(
-	_Out_ LPMSG lpMsg,
-	_In_opt_ HWND hWnd,
-	_In_ UINT wMsgFilterMin,
-	_In_ UINT wMsgFilterMax,
-	_In_ UINT wRemoveMsg);
-
-
 
 
 

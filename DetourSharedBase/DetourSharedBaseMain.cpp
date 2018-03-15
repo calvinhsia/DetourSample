@@ -92,14 +92,14 @@ int WINAPI MyStubMessageBoxA(
     _In_ UINT uType)
 {
     auto redir = g_arrDetourTableEntry[DTF_MessageBoxA].GetMethod();
-    return (reinterpret_cast<pfnMessageBoxA>(redir))(hWnd, lpText, lpCaption, uType);
+    return (reinterpret_cast<decltype(&MessageBoxA)>(redir))(hWnd, lpText, lpCaption, uType);
 }
 
 HMODULE WINAPI MyStubGetModuleHandleA(
     _In_opt_ LPCSTR lpModuleName)
 {
     auto redir = g_arrDetourTableEntry[DTF_GetModuleHandleA].GetMethod();
-    return (reinterpret_cast<pfnGetModuleHandle>(redir))(lpModuleName);
+    return (reinterpret_cast<decltype(&GetModuleHandleA)>(redir))(lpModuleName);
 }
 
 DWORD WINAPI MyStubGetModuleFileNameA(
@@ -109,7 +109,7 @@ DWORD WINAPI MyStubGetModuleFileNameA(
 )
 {
     auto redir = g_arrDetourTableEntry[DTF_GetModuleFileNameA].GetMethod();
-    return (reinterpret_cast<pfnGetModuleFileNameA>(redir))(hModule, lpFilename, nSize);
+    return (reinterpret_cast<decltype(&GetModuleFileNameA)>(redir))(hModule, lpFilename, nSize);
 }
 
 PVOID WINAPI MyStubRtlAllocateHeap(
@@ -156,7 +156,7 @@ LSTATUS APIENTRY MyStubRegCreateKeyExW(
 )
 {
     auto redir = g_arrDetourTableEntry[DTF_RegCreateKeyExW].GetMethod();
-    return (reinterpret_cast<pfnRegCreateKeyExW>(redir))(hKey, lpSubKey, Reserved, lpClass, dwOptions, samDesired, lpSecurityAttributes, phkResult, lpdwDisposition);
+    return (reinterpret_cast<decltype(&RegCreateKeyExW)>(redir))(hKey, lpSubKey, Reserved, lpClass, dwOptions, samDesired, lpSecurityAttributes, phkResult, lpdwDisposition);
 }
 
 LSTATUS APIENTRY MyStubRegOpenKeyExW(
@@ -168,19 +168,19 @@ LSTATUS APIENTRY MyStubRegOpenKeyExW(
 )
 {
     auto redir = g_arrDetourTableEntry[DTF_RegOpenKeyExW].GetMethod();
-    return (reinterpret_cast<pfnRegOpenKeyExW>(redir))(hKey, lpSubKey, dwOptions, samDesired, phkResult);
+    return (reinterpret_cast<decltype(&RegOpenKeyExW)>(redir))(hKey, lpSubKey, dwOptions, samDesired, phkResult);
 }
 
 LSTATUS APIENTRY MyStubRegOpenKeyExA(
     __in HKEY hKey,
-    __in_opt LPCTSTR lpSubKey,
+    __in_opt LPCSTR lpSubKey,
     __in_opt DWORD dwOptions,
     __in REGSAM samDesired,
     __out PHKEY phkResult
 )
 {
     auto redir = g_arrDetourTableEntry[DTF_RegOpenKeyExA].GetMethod();
-    return (reinterpret_cast<pfnRegOpenKeyExA>(redir))(hKey, lpSubKey, dwOptions, samDesired, phkResult);
+    return (reinterpret_cast<decltype(&RegOpenKeyExA)>(redir))(hKey, lpSubKey, dwOptions, samDesired, phkResult);
 }
 
 
@@ -191,7 +191,7 @@ BOOL WINAPI MyStubEnableScrollbar(
     _In_ UINT wArrows)
 {
     auto redir = g_arrDetourTableEntry[DTF_EnableScrollbar].GetMethod();
-    return (reinterpret_cast<pfnEnableScrollBar>(redir))(hWnd, wSBflags, wArrows);
+    return (reinterpret_cast<decltype(&EnableScrollBar)>(redir))(hWnd, wSBflags, wArrows);
 }
 
 
@@ -205,7 +205,7 @@ MyStubPeekMessageA(
     _In_ UINT wRemoveMsg)
 {
     auto redir = g_arrDetourTableEntry[DTF_PeekMessageA].GetMethod();
-    return (reinterpret_cast<pfnPeekMessageA>(redir))(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg);
+    return (reinterpret_cast<decltype(&PeekMessageA)>(redir))(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg);
 }
 
 
