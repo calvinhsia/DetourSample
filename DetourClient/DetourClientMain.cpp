@@ -7,6 +7,7 @@
 #include <atlcom.h>
 
 #include <string>
+#include <stack>
 #include "DetourClientMain.h"
 
 
@@ -132,7 +133,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
                 ((PDWORD)pMem)[0] = MySignature;
                 ((PDWORD)pMem)[1] = (DWORD)size;
             }
-            fDidCollectStack = CollectStack(StackTypeHeapAlloc, (DWORD)size);
+            fDidCollectStack = CollectStack(StackTypeHeapAlloc, (DWORD)size, NULL);
             pMem = (PBYTE)pMem + nExtraBytes;
             SETRECURDONE;
         }
@@ -154,14 +155,49 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 
 
 #ifndef _WIN64
-PVOID Real_NdrClientCall2;
-_declspec(naked) void MyNdrClientCall2()
+
+_declspec (thread) // note: when this code runs in VS, random failures when initializing the std::stack in a TLS: the stack would be empty even when the prior line says push(). workaround: make the TLS point to a struct containing the stl::stack
+std::stack<pair<LPVOID, DWORD>> _stackRetAddresses; // return address, TickCount
+
+void _stdcall pushvalue(LPVOID val)
 {
-    _asm push 0 //
+    _stackRetAddresses.push(pair<LPVOID, DWORD>(val, GetTickCount()));
+
+}
+LPVOID _stdcall popvalue()
+{
+    LPVOID val = _stackRetAddresses.top().first;
+    _stackRetAddresses.pop();
+    return val;
+}
+DWORD _stdcall getticks()
+{
+    DWORD elapsedTicks = GetTickCount() - _stackRetAddresses.top().second;
+    return elapsedTicks;
+}
+
+
+PVOID Real_NdrClientCall2;
+_declspec(naked) void DetourNdrClientCall2()
+{
+    _asm push [esp]     // save the real return address on our local std::stack. Push the ret address on the stack
+    _asm call pushvalue // call routine to put it in std::stack
+    _asm mov eax, lbl1  // we want the called routine to return to our label
+    _asm mov [esp], eax // change the return address to our label
+    _asm jmp Real_NdrClientCall2   // call the real code
+    _asm lbl1:          // here's where we return
+    _asm sub esp, 4     // since we're doing an additional RET in our detour, we need to adjust the stack
+    _asm push eax       // save return value
+    _asm call getticks  // get the elapsed time
+    _asm push eax       // push elapsed time
+    _asm push 0         // this will be 0 for main thread, 1, for bgd thread. set by CollectStack because easier in non-naked c++
     _asm push StackTypeRpc //Push parms in reverse order
-    _asm call CollectStack
-//    _asm add esp, 8 // for stdcall, callee cleans stack
-    _asm jmp Real_NdrClientCall2
+    _asm call CollectStack  // for stdcall, callee cleans stack
+    _asm call popvalue   // get the original return address
+    _asm mov [esp+4], eax   // put it on the stack so when we RET it will be there
+    _asm pop eax   // restore the real function's return value
+    _asm ret
+
 }
 #endif _WIN64
 
@@ -295,7 +331,7 @@ void HookInMyOwnVersion(BOOL fHook)
         _ASSERT_EXPR(res == S_OK, L"Redirecting detour to free heap");
 
 #ifndef _WIN64
-        res = fnRedirectDetour(DTF_NdrClientCall2, MyNdrClientCall2, (PVOID*)&Real_NdrClientCall2);
+        res = fnRedirectDetour(DTF_NdrClientCall2, DetourNdrClientCall2, (PVOID*)&Real_NdrClientCall2);
         _ASSERT_EXPR(res == S_OK, L"Redirecting detour to MyNdrClientCall2");
 #endif _WIN64
 

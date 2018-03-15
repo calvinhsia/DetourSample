@@ -262,13 +262,19 @@ LONGLONG GetNumStacksCollected()
     return nTotCnt;
 }
 
-bool _stdcall CollectStack(StackType stackType, DWORD stackParam)
+// extraInfo can be e.g. elapsed ticks. Don't store in stacks, but raise ETW event with it
+bool _stdcall CollectStack(StackType stackType, DWORD stackParam, DWORD extraInfo)
 {
     bool fDidCollectStack = false;
     if (!g_fReachedMemLimit)
     {
         try
         {
+            if (extraInfo > 1)
+            {
+                auto x = 2;
+            }
+
             CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
 #ifdef LIMITSTACKMEMORY
             // try limiting to a fixed amount of mem. We could use VirtualAlloc for a 64k block (or multiple of 64)
