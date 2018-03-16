@@ -206,15 +206,18 @@ LONGLONG GetNumStacksCollected()
     LONGLONG nTotSize = 0;
     int nUniqueStacks = 0;
     int nFrames = 0;
+    LONGLONG nRpcStacks[2] = {0};
     g_fReachedMemLimit = false;
     g_MyStlAllocLimit *= 2; // double mem used: we're done with detouring
     auto save_g_MyStlAllocTotalAlloc = g_MyStlAllocTotalAlloc;
     for (auto entry : g_mapStacksByStackType)
     {
-        auto stackBySize = entry.second;
         auto key = entry.first;
-        if (key.first == StackTypeHeapAlloc)
+        switch (key.first)
         {
+        case StackTypeHeapAlloc:
+        {
+            auto stackBySize = entry.second;
             auto sizeAlloc = key.second;
             auto cnt = stackBySize.GetTotalNumStacks(); // to see the output, use a tracepoint (breakpoint action): output: sizeAlloc={sizeAlloc} cnt={cnt}
             nTotSize += sizeAlloc * cnt;
@@ -228,6 +231,13 @@ LONGLONG GetNumStacksCollected()
                     auto f = frm;  // output {frm}
                 }
             }
+        }
+        break;
+        case StackTypeRpc:
+            nRpcStacks[key.second] += entry.second.GetTotalNumStacks();
+            break;
+        default:
+            break;
         }
     }
     g_MyStlAllocTotalAlloc = save_g_MyStlAllocTotalAlloc;
@@ -263,7 +273,7 @@ LONGLONG GetNumStacksCollected()
 }
 
 // extraInfo can be e.g. elapsed ticks. Don't store in stacks, but raise ETW event with it
-bool _stdcall CollectStack(StackType stackType, DWORD stackParam, DWORD extraInfo)
+bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraInfo, int numFramesToSkip)
 {
     bool fDidCollectStack = false;
     if (!g_fReachedMemLimit)
@@ -286,24 +296,13 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackParam, DWORD extraInf
 #endif LIMITSTACKMEMORY
 
             {
-                int numFramesToSkip = 1;
                 switch (stackType)
                 {
                 case StackTypeHeapAlloc:
                     g_nTotalAllocs++;
-                    g_TotalAllocSize += (int)stackParam;
+                    g_TotalAllocSize += (int)stackSubType;
                     break;
                 case StackTypeRpc:
-                    // calculate the parm here for Rpc because easier than doing it in inline asm
-                    if (GetCurrentThreadId() == g_dwMainThread)
-                    {
-                        stackParam = 0;
-                    }
-                    else
-                    {
-                        stackParam = 1;
-                    }
-                    numFramesToSkip = 1;
                     break;
                 default:
                     break;
@@ -311,7 +310,7 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackParam, DWORD extraInf
                 CallStack callStack(numFramesToSkip);
 
                 // We want to use the size as the key: see if we've seen this key before
-                mapKey key(stackType, stackParam);
+                mapKey key(stackType, stackSubType);
                 auto res = g_mapStacksByStackType.find(key);
                 if (res == g_mapStacksByStackType.end())
                 {

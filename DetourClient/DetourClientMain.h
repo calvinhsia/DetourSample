@@ -10,7 +10,7 @@ extern int g_nTotalAllocs;
 extern LONGLONG g_TotalAllocSize;
 extern LONG g_MyStlAllocTotalAlloc;
 
-bool _stdcall CollectStack(StackType stackType, DWORD stackParam, DWORD extraData);
+bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraData, int numFramesToSkip);
 bool UnCollectStack(StackType stackType, DWORD stackParam);
 
 void DoSomeManagedCode();

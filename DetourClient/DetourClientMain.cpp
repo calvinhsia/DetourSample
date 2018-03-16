@@ -133,7 +133,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
                 ((PDWORD)pMem)[0] = MySignature;
                 ((PDWORD)pMem)[1] = (DWORD)size;
             }
-            fDidCollectStack = CollectStack(StackTypeHeapAlloc, (DWORD)size, NULL);
+            fDidCollectStack = CollectStack(StackTypeHeapAlloc, (DWORD)size, /*stackSubType*/NULL, /*numFramesToSkip*/1);
             pMem = (PBYTE)pMem + nExtraBytes;
             SETRECURDONE;
         }
@@ -164,52 +164,53 @@ void _stdcall pushvalue(LPVOID val)
     _stackRetAddresses.push(pair<LPVOID, DWORD>(val, GetTickCount()));
 }
 
-LPVOID _stdcall popvalue(DWORD &elapsed)
+LPVOID _stdcall popvalue()
 {
     auto top = _stackRetAddresses.top();
     auto retAddr = top.first;
-    elapsed = GetTickCount() - top.second;
+    auto elapsed = GetTickCount() - top.second;
     _stackRetAddresses.pop();
+    DWORD stackSubType = 0;
+    if (GetCurrentThreadId() == g_dwMainThread)
+    {
+        stackSubType = 0;
+    }
+    else
+    {
+        stackSubType = 1;
+    }
+    CollectStack(StackTypeRpc, stackSubType, elapsed, /*numFramesToSkip*/2);
     return retAddr;
 }
-
-
-/*
-detouring NdrClientCall2 is a little complicated because it's CDECL. Wrapping (running code before/after the call to get elapsed time) is thus more complex
-CLIENT_CALL_RETURN RPC_VAR_ENTRY
-NdrClientCall2(
-PMIDL_STUB_DESC     pStubDescriptor,
-PFORMAT_STRING      pFormat,
-...
-);
-
-*/
-
-
 
 PVOID Real_NdrClientCall2;
 _declspec(naked) void DetourNdrClientCall2()
 {
-    _asm push [esp]     // save the real return address on our local std::stack. Push the ret address ([esp]) on the process stack (esp)
-    _asm call pushvalue // call routine to put it in std::stack
-    _asm mov eax, lbl1  // we want the called routine to return to our label
-    _asm mov[esp], eax  // change the return address to our label
-    _asm jmp Real_NdrClientCall2   // call the real code
+    /*
+    detouring NdrClientCall2 is a little complicated because it's CDECL. Wrapping (running code before/after the call to get elapsed time) is thus more complex
+    A caller looks like:
+        lea         eax,[ebp+10h]
+        push        eax
+        push        dword ptr [ebp+0Ch]
+        push        dword ptr [ebp+8]
+        call        NdrClientCall2 (76C57590h)
+        add         esp,0Ch
+    this is the prototype:
+            CLIENT_CALL_RETURN RPC_VAR_ENTRY
+            NdrClientCall2(
+            PMIDL_STUB_DESC     pStubDescriptor,
+            PFORMAT_STRING      pFormat,
+            ...
+            );
+    Upon entry here, ESP points to the caller return address (where the caller cleans the stack by adding 4 * the # of parms it pushed to ESP)
+    */
+    _asm call pushvalue // call psuhvalue (which expects 1 param, but we don't push one, so it uses the curvalue on the stack which is the ret addr) to put return addr in our threadlocal std::stack
+    _asm call Real_NdrClientCall2   // call the real code (it's cdecl with variable # parms)
 
-    _asm lbl1:          // here's where we return
     _asm sub esp, 4     // save space to put the orig return addr
     _asm push eax       // save real function's return value
-    _asm mov eax, esp   // create a local DWORD on stack to pass by ref to receive elapsed ticks
-    _asm sub eax, 4
-    _asm push eax       // push the DWORD by ref to receive ticks
-    _asm call popvalue  // get the original return address in eax and elapsed time in DWORD byref
+    _asm call popvalue  // get the original return address in eax
     _asm mov[esp + 4], eax       // put the original ret addr on stack where the "ret" below will return correctly
-
-    // now call CollectStack(StackTypeRpc, StackParam=0, ExtraInfo=ElapsedTime)
-    _asm sub esp, 4     // preserve the elapsed time on stack to pass to CollectStack
-    _asm push 0         // stackparam: this will be 0 for main thread, 1, for bgd thread. set by CollectStack because easier in non-naked c++
-    _asm push StackTypeRpc //Push parms in reverse order
-    _asm call CollectStack  // for stdcall, callee cleans stack. 3 params: stack type, stackParam, elapsed
 
     _asm pop eax      // restore the real function's return value
     _asm ret          // ret to caller
