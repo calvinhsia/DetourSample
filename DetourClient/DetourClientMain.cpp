@@ -173,7 +173,19 @@ LPVOID _stdcall popvalue(DWORD &elapsed)
     return retAddr;
 }
 
-//detouring NdrClientCall2 is a little complicated because it's CDECL. Wrapping (running code before/after the call to get elapsed time) is thus more complex
+
+/*
+detouring NdrClientCall2 is a little complicated because it's CDECL. Wrapping (running code before/after the call to get elapsed time) is thus more complex
+CLIENT_CALL_RETURN RPC_VAR_ENTRY
+NdrClientCall2(
+PMIDL_STUB_DESC     pStubDescriptor,
+PFORMAT_STRING      pFormat,
+...
+);
+
+*/
+
+
 
 PVOID Real_NdrClientCall2;
 _declspec(naked) void DetourNdrClientCall2()
