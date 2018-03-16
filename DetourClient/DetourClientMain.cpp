@@ -162,44 +162,45 @@ std::stack<pair<LPVOID, DWORD>> _stackRetAddresses; // return address, TickCount
 void _stdcall pushvalue(LPVOID val)
 {
     _stackRetAddresses.push(pair<LPVOID, DWORD>(val, GetTickCount()));
-
 }
-LPVOID _stdcall popvalue()
+
+LPVOID _stdcall popvalue(DWORD &elapsed)
 {
-    LPVOID val = _stackRetAddresses.top().first;
+    auto top = _stackRetAddresses.top();
+    auto retAddr = top.first;
+    elapsed = GetTickCount() - top.second;
     _stackRetAddresses.pop();
-    return val;
+    return retAddr;
 }
-DWORD _stdcall getticks()
-{
-    DWORD elapsedTicks = GetTickCount() - _stackRetAddresses.top().second;
-    return elapsedTicks;
-}
-
 
 //detouring NdrClientCall2 is a little complicated because it's CDECL. Wrapping (running code before/after the call to get elapsed time) is thus more complex
 
 PVOID Real_NdrClientCall2;
 _declspec(naked) void DetourNdrClientCall2()
 {
-    _asm push [esp]     // save the real return address on our local std::stack. Push the ret address on the stack
+    _asm push [esp]     // save the real return address on our local std::stack. Push the ret address ([esp]) on the process stack (esp)
     _asm call pushvalue // call routine to put it in std::stack
     _asm mov eax, lbl1  // we want the called routine to return to our label
-    _asm mov [esp], eax // change the return address to our label
+    _asm mov[esp], eax  // change the return address to our label
     _asm jmp Real_NdrClientCall2   // call the real code
-    _asm lbl1:          // here's where we return
-    _asm sub esp, 4     // since we're doing an additional RET in our detour, we need to adjust the stack
-    _asm push eax       // save return value
-    _asm call getticks  // get the elapsed time
-    _asm push eax       // push elapsed time
-    _asm push 0         // this will be 0 for main thread, 1, for bgd thread. set by CollectStack because easier in non-naked c++
-    _asm push StackTypeRpc //Push parms in reverse order
-    _asm call CollectStack  // for stdcall, callee cleans stack
-    _asm call popvalue   // get the original return address
-    _asm mov [esp+4], eax   // put it on the stack so when we RET it will be there
-    _asm pop eax   // restore the real function's return value
-    _asm ret
 
+    _asm lbl1:          // here's where we return
+    _asm sub esp, 4     // save space to put the orig return addr
+    _asm push eax       // save real function's return value
+    _asm mov eax, esp   // create a local DWORD on stack to pass by ref to receive elapsed ticks
+    _asm sub eax, 4
+    _asm push eax       // push the DWORD by ref to receive ticks
+    _asm call popvalue  // get the original return address in eax and elapsed time in DWORD byref
+    _asm mov[esp + 4], eax       // put the original ret addr on stack where the "ret" below will return correctly
+
+    // now call CollectStack(StackTypeRpc, StackParam=0, ExtraInfo=ElapsedTime)
+    _asm sub esp, 4     // preserve the elapsed time on stack to pass to CollectStack
+    _asm push 0         // stackparam: this will be 0 for main thread, 1, for bgd thread. set by CollectStack because easier in non-naked c++
+    _asm push StackTypeRpc //Push parms in reverse order
+    _asm call CollectStack  // for stdcall, callee cleans stack. 3 params: stack type, stackParam, elapsed
+
+    _asm pop eax      // restore the real function's return value
+    _asm ret          // ret to caller
 }
 #endif _WIN64
 
@@ -379,7 +380,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 
     HookInMyOwnVersion(true);
     auto h = GetModuleHandleA(0);
-    string buff(MAX_PATH,'\0');
+    string buff(MAX_PATH, '\0');
 
     GetModuleFileNameA(0, &buff[0], (DWORD)buff.length());
     //buff.resize(strlen(&buff[0]));
@@ -388,7 +389,7 @@ CLINKAGE void EXPORT StartVisualStudio()
     for (int i = 0; i < 10000; i++)
     {
         void *p = HeapAlloc(GetProcessHeap(), 0, 1000 + i);
-    //    HeapFree(GetProcessHeap(), 0, p);
+        //    HeapFree(GetProcessHeap(), 0, p);
     }
 
     DoSomeThreadingModelExperiments();
@@ -443,7 +444,7 @@ BOOL WINAPI DllMainxx
         break;
     case DLL_THREAD_DETACH:
         break;
-}
+    }
 
     return retval;
 }
