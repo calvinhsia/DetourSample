@@ -13,6 +13,7 @@
 
 using namespace std;
 
+
 int g_tlsIndex;
 pfnRtlAllocateHeap Real_RtlAllocateHeap;
 pfnHeapReAlloc Real_HeapReAlloc;
@@ -48,15 +49,14 @@ void CreateComObject();
 Using TlsIndex is a little complicated with heap alloc: When a thread is intialized, another DLL can call TlsAlloc,
 which tries to allocate more memory, but our Tls data hasn't been initialized yet.
 
-        >	DetourClient.dll!MyRtlAllocateHeap(void * hHeap, unsigned long dwFlags, unsigned long size) Line 36	C++
-        ntdll.dll!LdrpGetNewTlsVector(unsigned long EntryCount) Line 674	C
-        ntdll.dll!LdrpAllocateTls() Line 810	C
-        ntdll.dll!LdrpInitializeThread(_CONTEXT * Context) Line 6244	C
-        ntdll.dll!_LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1754	C
-        ntdll.dll!LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1403	C
-        ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 75	C
+>	DetourClient.dll!MyRtlAllocateHeap(void * hHeap, unsigned long dwFlags, unsigned long size) Line 36	C++
+ntdll.dll!LdrpGetNewTlsVector(unsigned long EntryCount) Line 674	C
+ntdll.dll!LdrpAllocateTls() Line 810	C
+ntdll.dll!LdrpInitializeThread(_CONTEXT * Context) Line 6244	C
+ntdll.dll!_LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1754	C
+ntdll.dll!LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1403	C
+ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 75	C
 
-So we'll use 0 for Uninitialized. 1 for IsRecur, 2 for RecurDone
 */
 
 #define TLSNotRecurring (PVOID)2 
@@ -70,7 +70,6 @@ So we'll use 0 for Uninitialized. 1 for IsRecur, 2 for RecurDone
 #endif
 
 extern "C" DWORD _tls_index;
-
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 {
     bool fDidCollectStack = false;
@@ -80,7 +79,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
     {
 #if !USETLSINDEX
         //thread_local
-            //__declspec(thread)
+        //__declspec(thread)
         static bool tlRecursionHeapAlloc = false;
 #endif
         {
@@ -91,14 +90,14 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
         /*
         // heapalloc is called when initializing a new thread, so we can't use TLS until it's been initialized, so we bailout
 
-            >	DetourClient.dll!MyRtlAllocateHeap(void * hHeap, unsigned long dwFlags, unsigned long size) Line 72	C++	Symbols loaded.
-            DetourSharedBase.exe!MyStubRtlAllocateHeap(void * hHeapHandle, unsigned long dwFlags, unsigned long nSize) Line 77	C++	Symbols loaded.
-            ntdll.dll!LdrpGetNewTlsVector(unsigned long EntryCount) Line 674	C	Symbols loaded.
-            ntdll.dll!LdrpAllocateTls() Line 810	C	Symbols loaded.
-            ntdll.dll!LdrpInitializeThread(_CONTEXT * Context) Line 6244	C	Symbols loaded.
-            ntdll.dll!_LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1754	C	Symbols loaded.
-            ntdll.dll!LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1403	C	Symbols loaded.
-            ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 75	C	Symbols loaded.
+        >	DetourClient.dll!MyRtlAllocateHeap(void * hHeap, unsigned long dwFlags, unsigned long size) Line 72	C++	Symbols loaded.
+        DetourSharedBase.exe!MyStubRtlAllocateHeap(void * hHeapHandle, unsigned long dwFlags, unsigned long nSize) Line 77	C++	Symbols loaded.
+        ntdll.dll!LdrpGetNewTlsVector(unsigned long EntryCount) Line 674	C	Symbols loaded.
+        ntdll.dll!LdrpAllocateTls() Line 810	C	Symbols loaded.
+        ntdll.dll!LdrpInitializeThread(_CONTEXT * Context) Line 6244	C	Symbols loaded.
+        ntdll.dll!_LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1754	C	Symbols loaded.
+        ntdll.dll!LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1403	C	Symbols loaded.
+        ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 75	C	Symbols loaded.
         */
 #ifndef _WIN64
 
@@ -188,26 +187,58 @@ _declspec(naked) void DetourNdrClientCall2()
 {
     /*
     detouring NdrClientCall2 is a little complicated because it's CDECL. Wrapping (running code before/after the call to get elapsed time) is thus more complex
+    https://msdn.microsoft.com/en-us/library/windows/desktop/aa374215(v=vs.85).aspx
+    Network Data Representation (NDR) Engine
     A caller looks like:
-        lea         eax,[ebp+10h]
-        push        eax
-        push        dword ptr [ebp+0Ch]
-        push        dword ptr [ebp+8]
-        call        NdrClientCall2 (76C57590h)
-        add         esp,0Ch
+
+    CLIENT_CALL_RETURN RPC_VAR_ENTRY
+    NdrClientCall4(
+    PMIDL_STUB_DESC     pStubDescriptor,
+    PFORMAT_STRING      pFormat,
+    ...
+    )
+    {
+    RPCP_PAGED_CODE();
+
+    va_list                     ArgList;
+
+    //
+    // On x86 we pass in a pointer to the first parameter, and expect that
+    // the rest of the parameters are directly behind it on the stack. The
+    // only way this silly assumption is true is if we disable optimization
+    // in the stub. We will switch to passing in all the parameters the same
+    // as in AMD64 and ARM. Due to back compat, we can't change NdrClientCall2,
+    // so this is a copy of the AMD/ARM version of NdrClientCall2 only called
+    // on x86 running Win8.1 or newer.
+    //
+    INIT_ARG( ArgList, pFormat);
+    uchar *StartofStack = (uchar*)GET_STACK_START(ArgList);
+
+    return NdrClientCall2( pStubDescriptor, pFormat, StartofStack );
+    }
+
+
+    The asm looks like:
+    lea         eax,[ebp+10h]
+    push        eax
+    push        dword ptr [ebp+0Ch]
+    push        dword ptr [ebp+8]
+    call        NdrClientCall2 (76C57590h)
+    add         esp,0Ch
+
     this is the prototype:
-            CLIENT_CALL_RETURN RPC_VAR_ENTRY
-            NdrClientCall2(
-            PMIDL_STUB_DESC     pStubDescriptor,
-            PFORMAT_STRING      pFormat,
-            ...
-            );
+    CLIENT_CALL_RETURN RPC_VAR_ENTRY
+    NdrClientCall2(
+    PMIDL_STUB_DESC     pStubDescriptor,
+    PFORMAT_STRING      pFormat,
+    ...
+    );
     Upon entry here, ESP points to the caller return address (where the caller cleans the stack by adding 4 * the # of parms it pushed to ESP)
     */
     _asm call pushvalue // call psuhvalue (which expects 1 param, but we don't push one, so it uses the curvalue on the stack which is the ret addr) to put return addr in our threadlocal std::stack
     _asm call Real_NdrClientCall2   // call the real code (it's cdecl with variable # parms)
 
-    _asm sub esp, 4     // save space to put the orig return addr
+    _asm push eax       // We're just Pushing here to decrement the stack by 4 to save space to put the orig return addr. This slot will be replaced by the orig ret addr
     _asm push eax       // save real function's return value
     _asm call popvalue  // get the original return address in eax
     _asm mov[esp + 4], eax       // put the original ret addr on stack where the "ret" below will return correctly
@@ -309,12 +340,33 @@ DWORD WINAPI MyGetModuleFileNameA(
 }
 
 
+class myclass
+{
+public:
+    myclass()
+    {
+        _dwThreadId = GetCurrentThreadId();
+        _pMem = malloc(100);
+    }
+    DWORD _dwThreadId;
+    LPVOID _pMem;
+public:
+    ~myclass()
+    {
+        delete _pMem;
+    }
+};
+
+thread_local myclass g_myclass;
+
+
 // To enable detours, they must already have been detoured much earlier, probably before this module has been loaded,
 // and we call RedirectDetour to enable the detour
 // note: this is not transacted (all or nothing), so a partial success might
 // need to be undone
 void HookInMyOwnVersion(BOOL fHook)
 {
+
     HMODULE hmDevenv = GetModuleHandleA(nullptr);
 
     //	g_mapStacks = new (malloc(sizeof(mapStacks)) mapStacks(MySTLAlloc < pair<const SIZE_T, vecStacks>(GetProcessHeap());
@@ -426,7 +478,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 }
 
 
-BOOL WINAPI DllMainxx
+BOOL WINAPI DllMain
 (
     HINSTANCE hInst,
     ULONG     ulReason,
@@ -438,22 +490,13 @@ BOOL WINAPI DllMainxx
     switch (ulReason)
     {
     case DLL_PROCESS_ATTACH:
-#if USETLSINDEX
-        g_tlsIndex = TlsAlloc();
-        _ASSERT_EXPR(g_tlsIndex != 0, L"TlsAlloc");
-        TlsSetValue(g_tlsIndex, TLSNotRecurring);
-#endif USETLSINDEX
 
         break;
 
     case DLL_THREAD_ATTACH:
-#if USETLSINDEX
-        TlsSetValue(g_tlsIndex, TLSNotRecurring);
-#endif USETLSINDEX
         break;
 
     case DLL_PROCESS_DETACH:
-        TlsFree(g_tlsIndex);
         break;
     case DLL_THREAD_DETACH:
         break;
