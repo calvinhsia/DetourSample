@@ -8,6 +8,7 @@
 
 #include <string>
 #include <stack>
+#include <vector>
 #include "DetourClientMain.h"
 
 
@@ -439,9 +440,48 @@ void HookInMyOwnVersion(BOOL fHook)
     }
 }
 
+vector<int> split(string str)
+{
+    vector<int> resultVec;
+    while (str.size())
+    {
+        auto ndx = str.find(',');
+        if (ndx != string::npos)
+        {
+            resultVec.push_back(atol(str.substr(0, ndx).c_str()));
+            str = str.substr(ndx + 1);
+        }
+        else
+        {
+            resultVec.push_back(atol(str.c_str()));
+            break;
+        }
+    }
+    return resultVec;
+}
+
 CLINKAGE void EXPORT StartVisualStudio()
 {
-    g_dwMainThread = GetCurrentThreadId();
+     g_dwMainThread = GetCurrentThreadId();
+
+    string HeapAllocSizeValues("8,72,1031");
+    string HeapAllocThresh("271,220,40");
+
+    vector<int> heapSizes = split(HeapAllocSizeValues);
+    auto heapThreshholds = split(HeapAllocThresh);
+    heapThreshholds[0]--;
+    heapThreshholds[1] -= 2;
+
+    auto ndxSize = find(heapSizes.begin(), heapSizes.end(), 73);
+    if (ndxSize == heapSizes.end())
+    {
+        auto x = 2;
+    }
+    else
+    {
+        auto y = distance( heapSizes.begin(), ndxSize);
+    }
+
 
     HookInMyOwnVersion(true);
     auto h = GetModuleHandleA(0);
