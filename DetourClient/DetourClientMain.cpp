@@ -440,7 +440,7 @@ void HookInMyOwnVersion(BOOL fHook)
     }
 }
 
-vector<int> split(string str)
+vector<int> split(string& str)
 {
     vector<int> resultVec;
     while (str.size())
@@ -462,24 +462,23 @@ vector<int> split(string str)
 
 CLINKAGE void EXPORT StartVisualStudio()
 {
-     g_dwMainThread = GetCurrentThreadId();
+    g_dwMainThread = GetCurrentThreadId();
 
     string HeapAllocSizeValues("8,72,1031");
     string HeapAllocThresh("271,220,40");
 
-    vector<int> heapSizes = split(HeapAllocSizeValues);
-    auto heapThreshholds = split(HeapAllocThresh);
-    heapThreshholds[0]--;
-    heapThreshholds[1] -= 2;
+    g_heapAllocSizesToCollect = split(HeapAllocSizeValues);
+    g_heapAllocSizeThreshholds = split(HeapAllocThresh);
 
-    auto ndxSize = find(heapSizes.begin(), heapSizes.end(), 73);
-    if (ndxSize == heapSizes.end())
+    auto ndxSize = find(g_heapAllocSizesToCollect.begin(), g_heapAllocSizesToCollect.end(), 72);
+    if (ndxSize == g_heapAllocSizesToCollect.end())
     {
         auto x = 2;
     }
     else
     {
-        auto y = distance( heapSizes.begin(), ndxSize);
+        auto y = distance( g_heapAllocSizesToCollect.begin(), ndxSize);
+        g_heapAllocSizeThreshholds[y]--;
     }
 
 

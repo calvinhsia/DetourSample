@@ -1,17 +1,17 @@
 
 #include "..\DetourSharedBase\DetourShared.h"
-#include "vector"
 #include "unordered_map"
 #include "atlbase.h"
 #include "DetourClientMain.h"
 
-using namespace std;
 
 extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
 
 CComAutoCriticalSection g_critSectHeapAlloc;
 int g_nTotalAllocs;
 LONGLONG g_TotalAllocSize;
+vector<int> g_heapAllocSizesToCollect;
+vector<int> g_heapAllocSizeThreshholds;
 
 LONG g_MyStlAllocTotalAlloc = 0;
 LONG g_MyStlAllocLimit = 65536 * 20;
