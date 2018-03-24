@@ -54,7 +54,8 @@ namespace CSLife
             {
                 System.Diagnostics.Debug.Write("\nDraw");
             }
-
+            var p = Marshal.AllocCoTaskMem(1024 * 1024 + 10);
+            Marshal.FreeCoTaskMem(p);
             for (x = 0; x < m_numx; x++)
             {
                 for (y = 0; y < m_numy; y++)

@@ -2,7 +2,9 @@
 #include "..\Detours\detours.h"
 #include "DetourShared.h"
 #include "crtdbg.h"
+#include "string"
 #include "stdio.h"
+using namespace std;
 
 typedef int (WINAPI *PfnStartVisualStudio)(void);
 
@@ -417,11 +419,16 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
+    string desc = g_szArch;
+#if _DEBUG
+    desc += " debug";
+#else
+    desc += " release";
+#endif _DEBUG
     {
         HeapSetInformation(GetProcessHeap(), HeapEnableTerminationOnCorruption, nullptr, 0);
         SharedDetours sharedDetours;
-
-        MessageBoxA(0, "Detours in place, calling unredirected version of MessageboxA", g_szArch, 0);
+        MessageBoxA(0, "Detours in place, calling unredirected version of MessageboxA", desc.c_str(), 0);
 
         HMODULE hModule = LoadLibrary(L"DetourClient.dll");
         _ASSERT_EXPR(hModule != nullptr, L"couldn't load DetourCLient.dll");
@@ -434,6 +441,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     // detours are now uninstalled:
     auto h2 = GetModuleHandleA(0);
-    MessageBoxA(0, "No more Detours in place, calling WinApi MessageboxA", g_szArch, 0);
+    MessageBoxA(0, "No more Detours in place, calling WinApi MessageboxA", desc.c_str(), 0);
 
 }

@@ -6,9 +6,6 @@
 #include <atlbase.h>
 #include <atlcom.h>
 
-#include <string>
-#include <stack>
-#include <vector>
 #include "DetourClientMain.h"
 
 
@@ -20,7 +17,6 @@ pfnRtlAllocateHeap Real_RtlAllocateHeap;
 pfnHeapReAlloc Real_HeapReAlloc;
 pfnRtlFreeHeap Real_RtlFreeHeap;
 
-SIZE_T g_AllocSizeThresholdForStackCollection = 0;// 1024 * 1024;
 
 DWORD g_dwMainThread;
 
@@ -29,8 +25,6 @@ CComAutoCriticalSection g_csHeap;
 
 
 void CreateComObject();
-#define nExtraBytes  0 // 8 CLR heap alloc alignment?
-#define MySignature ((DWORD)0xDEFACED1)
 
 // must define this for 64 bit:
 #ifdef _WIN64
@@ -70,13 +64,33 @@ ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Li
 
 #endif
 
+void foobar()
+{
+    SIZE_T sizeAlloc = 72;
+    auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [sizeAlloc](HeapSizeData data)
+    {
+        if (data._nSize == sizeAlloc)
+        {
+            return true;
+        }
+        return false;
+    });
+    GetModuleFileName((HMODULE)(*it)._nSize, nullptr, NULL);
+
+}
+
+bool MyPred(SIZE_T size, HeapSizeData data)
+{
+    return data._nSize == size;
+}
+
 extern "C" DWORD _tls_index;
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 {
     bool fDidCollectStack = false;
     PVOID pMem = nullptr;
 
-    if (size > g_AllocSizeThresholdForStackCollection)
+    //    if (size > g_HeapAllocSizeMinValue)
     {
 #if !USETLSINDEX
         //thread_local
@@ -127,28 +141,64 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
         if (!ISRECUR) // this is the more expensive thread local check
         {
             SETRECUR;
-            pMem = Real_RtlAllocateHeap(hHeap, dwFlags, size + nExtraBytes);
-            if (nExtraBytes >= 8)
+            pMem = Real_RtlAllocateHeap(hHeap, dwFlags, size);
+            if (size < g_HeapAllocSizeMinValue)
             {
-                ((PDWORD)pMem)[0] = MySignature;
-                ((PDWORD)pMem)[1] = (DWORD)size;
+                //                auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [size](HeapSizeData data) {return MyPred(size, data); });
+                //HeapSizeData *pdata=nullptr;
+                //for (auto item : g_heapAllocSizes)
+                //{
+                //    if (item._nSize == size)
+                //    {
+                //        pdata = &item;
+                //        break;
+                //    }
+                //}
+                //for_each(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [size](HeapSizeData data) {
+                //    if (data._nSize == size)
+                //    {
+
+                //    }
+                //});
+                auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [size](HeapSizeData data)
+                {
+                    if (data._nSize == size)
+                    {
+                        return true;
+                    }
+                    return false;
+                });
+                if (it != g_heapAllocSizes.end())
+                {
+                    if ((*it)._nThreshold == 0)
+                    {
+                        fDidCollectStack = CollectStack(StackTypeHeapAlloc,/*stackSubType*/ (DWORD)size, /*extra data*/NULL, /*numFramesToSkip*/2);
+                        if (fDidCollectStack)
+                        {
+                            InterlockedIncrement(&(*it)._nStacksCollected);
+                        }
+                    }
+                    else
+                    {
+                        InterlockedDecrement(&(*it)._nThreshold);
+                    }
+                }
             }
-            fDidCollectStack = CollectStack(StackTypeHeapAlloc, (DWORD)size, /*stackSubType*/NULL, /*numFramesToSkip*/1);
-            pMem = (PBYTE)pMem + nExtraBytes;
+            else
+            {
+                fDidCollectStack = CollectStack(StackTypeHeapAlloc,/*stackSubType*/ (DWORD)size, /*extra data*/NULL, /*numFramesToSkip*/1);
+            }
+
             SETRECURDONE;
         }
         else
         {
+#ifndef _WIN64
+            _asm bailout:
+#else
+#endif _WIN64            
             pMem = Real_RtlAllocateHeap(hHeap, dwFlags, size);
         }
-    }
-    else
-    {
-#ifndef _WIN64
-        _asm bailout:
-#else
-#endif _WIN64
-        pMem = Real_RtlAllocateHeap(hHeap, dwFlags, size);
     }
     return pMem;
 }
@@ -179,7 +229,7 @@ LPVOID _stdcall popvalue()
     {
         stackSubType = 1;
     }
-    CollectStack(StackTypeRpc, stackSubType, elapsed, /*numFramesToSkip*/2);
+    CollectStack(StackTypeRpc, stackSubType, elapsed, /*numFramesToSkip*/3);
     return retAddr;
 }
 
@@ -285,27 +335,6 @@ BOOL WINAPI MyRtlFreeHeap(
     LPVOID lpMem
 )
 {
-    if (lpMem != nullptr)
-    {
-        bool fIsTrackedBlk = false;
-        if (nExtraBytes >= 8)
-        {
-            LPVOID pBlock = (PBYTE)lpMem - nExtraBytes;
-            if (((PDWORD)pBlock)[0] == MySignature)
-            {
-                // https://www.youtube.com/watch?v=LIb3L4vKZ7U
-                // http://www.open-std.org/JTC1/SC22/WG21/docs/papers/2013/n3536.html
-                // Modern memory allocators often allocate in size categories, and, for space efficiency reasons, do not store the size of the object near the object. 
-                // Deallocation then requires searching for the size category store that contains the object. This search can be expensive, particularly as the search data structures are often not in memory caches. 
-                DWORD dwSizeAlloc = ((PDWORD)pBlock)[1];
-                if (UnCollectStack(StackTypeHeapAlloc, dwSizeAlloc))
-                {
-                    fIsTrackedBlk = true;
-                    lpMem = pBlock;
-                }
-            }
-        }
-    }
     auto res = Real_RtlFreeHeap(hHeap, dwFlags, lpMem);
     return res;
 }
@@ -440,45 +469,60 @@ void HookInMyOwnVersion(BOOL fHook)
     }
 }
 
-vector<int> split(string& str)
+void splitStr(wstring str, char sepChar, function<void(wstring val)> callback)
 {
-    vector<int> resultVec;
-    while (str.size())
+    auto ndxSeparator = str.find(sepChar);
+    size_t ndxStart = 0;
+    while (ndxSeparator != string::npos)
     {
-        auto ndx = str.find(',');
-        if (ndx != string::npos)
-        {
-            resultVec.push_back(atol(str.substr(0, ndx).c_str()));
-            str = str.substr(ndx + 1);
-        }
-        else
-        {
-            resultVec.push_back(atol(str.c_str()));
-            break;
-        }
+        callback(str.substr(ndxStart, ndxSeparator - ndxStart));
+        ndxStart = ndxSeparator + 1;
+        ndxSeparator = str.find_first_of(sepChar, ndxStart);
     }
-    return resultVec;
+    auto leftover = str.substr(ndxStart, -1);
+    if (leftover.size() > 0)
+    {
+        callback(leftover);
+    }
 }
+
 
 CLINKAGE void EXPORT StartVisualStudio()
 {
     g_dwMainThread = GetCurrentThreadId();
 
-    string HeapAllocSizeValues("8,72,1031");
-    string HeapAllocThresh("271,220,40");
+    splitStr(g_strHeapAllocSizesToCollect, ',', [](wstring valPair)
+    {
+        auto ndxColon = valPair.find(':');
+        auto heapSize = _wtol(valPair.substr(0, ndxColon).c_str());
+        auto heapThresh = _wtol(valPair.substr(ndxColon + 1).c_str());
+        g_heapAllocSizes.push_back(HeapSizeData(heapSize, heapThresh));
 
-    g_heapAllocSizesToCollect = split(HeapAllocSizeValues);
-    g_heapAllocSizeThreshholds = split(HeapAllocThresh);
+    });
 
-    auto ndxSize = find(g_heapAllocSizesToCollect.begin(), g_heapAllocSizesToCollect.end(), 72);
-    if (ndxSize == g_heapAllocSizesToCollect.end())
+    SIZE_T sizeAlloc = 72;
+    auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [sizeAlloc](HeapSizeData data)
+    {
+        if (data._nSize == sizeAlloc)
+        {
+            return true;
+        }
+        return false;
+    });
+    if (it == g_heapAllocSizes.end())
     {
         auto x = 2;
     }
     else
     {
-        auto y = distance( g_heapAllocSizesToCollect.begin(), ndxSize);
-        g_heapAllocSizeThreshholds[y]--;
+        if ((*it)._nThreshold == 0)
+        {
+
+        }
+        else
+        {
+            (*it)._nThreshold--;
+        }
     }
 
 
@@ -511,7 +555,7 @@ CLINKAGE void EXPORT StartVisualStudio()
     LONGLONG nStacksCollected = GetNumStacksCollected();
     sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d", g_nTotalAllocs, g_TotalAllocSize, nStacksCollected, g_MyStlAllocTotalAlloc);
     MessageBoxA(0, &buff[0], "Calling the WinApi version of MessageboxA", 0);
-    _ASSERT_EXPR(g_nTotalAllocs > 400 && g_TotalAllocSize > 70000, L"#expected > 2400 allocations of >700k bytes");
+    _ASSERT_EXPR(g_nTotalAllocs > 400 && g_TotalAllocSize > 3000, L"#expected > 400 allocations of >3000 bytes");
     _ASSERT_EXPR(nStacksCollected > 50, L"#expected > 50 stacks collected");
 
 }
