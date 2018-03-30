@@ -32,6 +32,9 @@ bool g_fReachedMemLimit = false;
 #ifdef MYSTLALLOCSTATICHEAP
 static HANDLE m_hHeap = GetProcessHeap();
 #endif MYSTLALLOCSTATICHEAP
+long g_nTotMyStlAllocBytes = 0;
+long g_nTotMyStlFreedBytes = 0;
+long g_nTotFramesCollected = 0;
 
 template <class T>
 struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use-a-custom-allocator-for-your-stl-container/
@@ -77,6 +80,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
         //}
 //#endif LIMITSTACKMEMORY
         InterlockedAdd(&g_MyStlAllocTotalAlloc, nSize);
+		g_nTotMyStlAllocBytes += nSize;
         void *pv;
         if (Real_RtlAllocateHeap == nullptr)
         {
@@ -96,6 +100,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
     {
         unsigned nSize = (UINT)n * sizeof(T);
         InterlockedAdd(&g_MyStlAllocTotalAlloc, -((int)nSize));
+		g_nTotMyStlFreedBytes += nSize;
         HeapFree(m_hHeap, 0, p);
     }
     ~MySTLAlloc(){
@@ -178,8 +183,9 @@ struct StacksForStackType
         {
             if (!g_fReachedMemLimit)
             {
-                _stacks.insert(pair<UINT, CallStack>(stack.stackHash, stack));
-                g_NumUniqueStacks++;
+				g_NumUniqueStacks++;
+				g_nTotFramesCollected += stack.vecFrames.size();
+				_stacks.insert(pair<UINT, CallStack>(stack.stackHash, stack));
 #ifdef LIMITBYNUMUNIQUESTACKS
                 if (g_NumUniqueStacks > 100)
                 {
