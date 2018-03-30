@@ -1,9 +1,9 @@
 #include <Windows.h>
 //#import "Atlproject1.tlb"
 #if _DEBUG
-#import "..\..\..\ATLProject1\Debug\ATLProject1.tlb"
+#import "..\ATLProject1\Debug\ATLProject1.tlb"
 #else
-#import "..\..\..\ATLProject1\Release\ATLProject1.tlb"
+#import "..\ATLProject1\Release\ATLProject1.tlb"
 #endif
 #include <atlbase.h>
 #include <atlcom.h>
