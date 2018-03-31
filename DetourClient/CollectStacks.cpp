@@ -11,7 +11,7 @@ WCHAR * g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
 int g_NumFramesTocapture = 20;
 SIZE_T g_HeapAllocSizeMinValue = 0;// 1048576;
 
-HANDLE g_hHeap = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 65536);
+HANDLE g_hHeap = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ g_MyStlAllocStats.g_MyStlAllocLimit);
 
 vector<HeapSizeData> g_heapAllocSizes;
 
@@ -23,10 +23,7 @@ LONGLONG g_TotalAllocSize;
 
 //#define LIMITBYNUMUNIQUESTACKS
 
-LONG g_MyStlAllocTotalAlloc = 0;
-LONG g_MyStlAllocLimit = 65536;
-LONG g_NumUniqueStacks = 0;
-bool g_fReachedMemLimit = false;
+StlAllocStats g_MyStlAllocStats;
 
 #define USEMYSTLALLOC 
 //#define MYSTLALLOCSTATICHEAP
@@ -36,9 +33,6 @@ bool g_fReachedMemLimit = false;
 static HANDLE m_hHeap = g_hHeap;
 #endif MYSTLALLOCSTATICHEAP
 
-long g_nTotMyStlAllocBytes = 0;
-long g_nTotMyStlFreedBytes = 0;
-long g_nTotFramesCollected = 0;
 
 template <class T>
 struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use-a-custom-allocator-for-your-stl-container/
@@ -47,14 +41,14 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 	MySTLAlloc()
 	{
 #ifndef MYSTLALLOCSTATICHEAP
-		m_hHeap = g_hHeap;
+//		m_hHeap = g_hHeap;
 #endif MYSTLALLOCSTATICHEAP
 	}
 	// A converting copy constructor:
 	template<class U> MySTLAlloc(const MySTLAlloc<U>& other)
 	{
 #ifndef MYSTLALLOCSTATICHEAP
-		m_hHeap = other.m_hHeap;
+//		m_hHeap = other.m_hHeap;
 #endif MYSTLALLOCSTATICHEAP
 	}
 	template<class U> bool operator==(const MySTLAlloc<U>&) const
@@ -83,10 +77,10 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 				//    throw std::bad_alloc();
 				//}
 		//#endif LIMITSTACKMEMORY
-		InterlockedAdd(&g_MyStlAllocTotalAlloc, nSize);
-		g_nTotMyStlAllocBytes += nSize;
+		InterlockedAdd(&g_MyStlAllocStats.g_MyStlAllocTotalAlloc, nSize);
+        g_MyStlAllocStats.g_nTotMyStlAllocBytes += nSize;
 		void *pv;
-		pv = HeapAlloc(m_hHeap, 0, nSize);
+		pv = HeapAlloc(g_hHeap, 0, nSize);
 		//if (Real_RtlAllocateHeap == nullptr)
   //      {
   //      }
@@ -104,9 +98,12 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 	void deallocate(T* const p, size_t n) const
 	{
 		unsigned nSize = (UINT)n * sizeof(T);
-		InterlockedAdd(&g_MyStlAllocTotalAlloc, -((int)nSize));
-		g_nTotMyStlFreedBytes += nSize;
-		HeapFree(m_hHeap, 0, p);
+		InterlockedAdd(&g_MyStlAllocStats.g_MyStlAllocTotalAlloc, -((int)nSize));
+        g_MyStlAllocStats.g_nTotMyStlFreedBytes += nSize;
+        if (g_hHeap != nullptr)
+        {
+            HeapFree(g_hHeap, 0, p);
+        }
 	}
 	~MySTLAlloc() {
 
@@ -182,17 +179,17 @@ struct StacksForStackType
 	bool AddNewStack(int numFramesToSkip)
 	{
 		bool fDidAdd = false;
-		if (!g_fReachedMemLimit)
+		if (!g_MyStlAllocStats.g_fReachedMemLimit)
 		{
 			CallStack stack(numFramesToSkip);
 			auto hash = stack.stackHash;
 			auto res = _stacks.find(hash);
 			if (res == _stacks.end())
 			{
-				if (!g_fReachedMemLimit)
+				if (!g_MyStlAllocStats.g_fReachedMemLimit)
 				{
-					g_NumUniqueStacks++;
-					g_nTotFramesCollected += stack.vecFrames.size();
+                    g_MyStlAllocStats.g_NumUniqueStacks++;
+                    g_MyStlAllocStats.g_nTotFramesCollected += stack.vecFrames.size();
 					_stacks.insert(mapStackHashToStack::value_type(hash, move(stack)));
 #ifdef LIMITBYNUMUNIQUESTACKS
 					if (g_NumUniqueStacks > 100)
@@ -288,9 +285,9 @@ LONGLONG GetNumStacksCollected()
 	int nUniqueStacks = 0;
 	int nFrames = 0;
 	LONGLONG nRpcStacks[2] = { 0 };
-	g_fReachedMemLimit = false;
-	g_MyStlAllocLimit *= 2; // double mem used: we're done with detouring
-	auto save_g_MyStlAllocTotalAlloc = g_MyStlAllocTotalAlloc;
+    //g_MyStlAllocStats.g_fReachedMemLimit = false;
+    //g_MyStlAllocStats.g_MyStlAllocLimit *= 2; // double mem used: we're done with detouring
+	auto save_g_MyStlAllocTotalAlloc = g_MyStlAllocStats.g_MyStlAllocTotalAlloc;
 	for (auto &entry : g_mapStacksByStackType)
 	{
 		auto key = entry.first;
@@ -321,7 +318,7 @@ LONGLONG GetNumStacksCollected()
 			break;
 		}
 	}
-	g_MyStlAllocTotalAlloc = save_g_MyStlAllocTotalAlloc;
+    g_MyStlAllocStats.g_MyStlAllocTotalAlloc = save_g_MyStlAllocTotalAlloc;
 	/*
 	Sample output from OutputWindow:
 	sizeAlloc=72 cnt=25
@@ -348,8 +345,8 @@ LONGLONG GetNumStacksCollected()
 
 	*/
 
-	_ASSERT_EXPR(g_nTotalAllocs == nTotCnt, L"Total # allocs shouuld match");
-	_ASSERT_EXPR(g_TotalAllocSize == nTotSize, L"Total size allocs should match");
+	_ASSERT_EXPR(g_MyStlAllocStats.g_fReachedMemLimit || g_nTotalAllocs == nTotCnt, L"Total # allocs shouuld match");
+	_ASSERT_EXPR(g_MyStlAllocStats.g_fReachedMemLimit || g_TotalAllocSize == nTotSize, L"Total size allocs should match");
 	return nTotCnt;
 }
 
@@ -389,7 +386,7 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 			auto res = g_mapStacksByStackType.find(key);
 			if (res == g_mapStacksByStackType.end())
 			{
-				if (!g_fReachedMemLimit)
+				if (!g_MyStlAllocStats.g_fReachedMemLimit)
 				{
 					g_mapStacksByStackType.insert(mapStacksByStackType::value_type(key, StacksForStackType(numFramesToSkip)));
 					fDidCollectStack = true;
@@ -404,13 +401,13 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 	}
 	catch (const std::bad_alloc&)
 	{
-		g_fReachedMemLimit = true;
+        g_MyStlAllocStats.g_fReachedMemLimit = true;
 	}
-	if (fDidCollectStack && !g_fReachedMemLimit)
+	if (fDidCollectStack && !g_MyStlAllocStats.g_fReachedMemLimit)
 	{
-		if (g_MyStlAllocTotalAlloc >= g_MyStlAllocLimit)
+		if (g_MyStlAllocStats.g_MyStlAllocTotalAlloc >= g_MyStlAllocStats.g_MyStlAllocLimit)
 		{
-			//            g_fReachedMemLimit = true;
+            g_MyStlAllocStats.g_fReachedMemLimit = true;
 		}
 	}
 	return fDidCollectStack;

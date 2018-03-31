@@ -466,10 +466,6 @@ void HookInMyOwnVersion(BOOL fHook)
         {
             _ASSERT_EXPR(false, L"Failed to redirect detour");
         }
-		if (g_hHeap != nullptr)
-		{
-			HeapDestroy(g_hHeap);
-		}
     }
 }
 
@@ -578,7 +574,14 @@ CLINKAGE void EXPORT StartVisualStudio()
     GetModuleFileNameA(0, &buff[0], (DWORD)buff.length());
 
     LONGLONG nStacksCollected = GetNumStacksCollected();
-    sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d", g_nTotalAllocs, g_TotalAllocSize, nStacksCollected, g_MyStlAllocTotalAlloc);
+    sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d", g_nTotalAllocs, g_TotalAllocSize, nStacksCollected, g_MyStlAllocStats.g_MyStlAllocTotalAlloc);
+
+    if (g_hHeap != nullptr)
+    {
+//        HeapDestroy(g_hHeap);
+  //      g_hHeap = nullptr;
+    }
+
     MessageBoxA(0, &buff[0], "Calling the WinApi version of MessageboxA", 0);
     _ASSERT_EXPR(g_nTotalAllocs > 400 && g_TotalAllocSize > 3000, L"#expected > 400 allocations of >3000 bytes");
     _ASSERT_EXPR(nStacksCollected > 50, L"#expected > 50 stacks collected");

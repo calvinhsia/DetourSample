@@ -28,10 +28,23 @@ struct HeapSizeData
 //once initialized, this vector is const except for the counts, which are interlocked when changed. Thus it's thread safe
 extern vector<HeapSizeData> g_heapAllocSizes;
 
+struct StlAllocStats
+{
+    LONG g_MyStlAllocTotalAlloc = 0;
+    LONG g_MyStlAllocLimit = 65536*1;
+    LONG g_NumUniqueStacks = 0;
+    bool g_fReachedMemLimit = false;
+    long g_nTotMyStlAllocBytes = 0;
+    long g_nTotMyStlFreedBytes = 0;
+    long g_nTotFramesCollected = 0;
+};
+extern StlAllocStats g_MyStlAllocStats;
+
+
 extern DWORD g_dwMainThread;
 extern int g_nTotalAllocs;
 extern LONGLONG g_TotalAllocSize;
-extern LONG g_MyStlAllocTotalAlloc;
+
 extern WCHAR * g_strHeapAllocSizesToCollect;
 extern WCHAR * g_strHeapAllocThresholds;
 extern int g_NumFramesTocapture;
