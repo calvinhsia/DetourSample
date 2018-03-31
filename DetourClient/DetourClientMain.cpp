@@ -466,6 +466,10 @@ void HookInMyOwnVersion(BOOL fHook)
         {
             _ASSERT_EXPR(false, L"Failed to redirect detour");
         }
+		if (g_hHeap != nullptr)
+		{
+			HeapDestroy(g_hHeap);
+		}
     }
 }
 
@@ -538,7 +542,8 @@ CLINKAGE void EXPORT StartVisualStudio()
         }
     }
 
-	auto hHeap= HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 65536);
+
+
 
 	RecurDownSomeLevels(200);
 
@@ -594,7 +599,7 @@ BOOL WINAPI DllMain
     {
     case DLL_PROCESS_ATTACH:
 
-        break;
+        break; 
 
     case DLL_THREAD_ATTACH:
         break;

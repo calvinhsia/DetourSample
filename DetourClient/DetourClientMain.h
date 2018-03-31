@@ -36,6 +36,7 @@ extern WCHAR * g_strHeapAllocSizesToCollect;
 extern WCHAR * g_strHeapAllocThresholds;
 extern int g_NumFramesTocapture;
 extern SIZE_T g_HeapAllocSizeMinValue;
+extern HANDLE g_hHeap;
 
 
 bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraData, int numFramesToSkip);
