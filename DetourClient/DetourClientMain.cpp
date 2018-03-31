@@ -486,6 +486,19 @@ void splitStr(wstring str, char sepChar, function<void(wstring val)> callback)
     }
 }
 
+void RecurDownSomeLevels(int nLevel)
+{
+	if (nLevel > 0)
+	{
+		RecurDownSomeLevels(nLevel - 1);
+		nLevel--; // prevent optimization
+	}
+	else
+	{
+		CollectStack(StackTypeHeapAlloc, 1, 0, 2);
+	}
+}
+
 
 CLINKAGE void EXPORT StartVisualStudio()
 {
@@ -525,8 +538,15 @@ CLINKAGE void EXPORT StartVisualStudio()
         }
     }
 
+	auto hHeap= HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 65536);
+
+	RecurDownSomeLevels(200);
 
     HookInMyOwnVersion(true);
+
+
+
+
     auto h = GetModuleHandleA(0);
     string buff(MAX_PATH, '\0');
 
