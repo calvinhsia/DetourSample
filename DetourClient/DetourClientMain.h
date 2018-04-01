@@ -30,20 +30,22 @@ extern vector<HeapSizeData> g_heapAllocSizes;
 
 struct StlAllocStats
 {
-    LONG g_MyStlAllocTotalAlloc = 0;
-    LONG g_MyStlAllocLimit = 65536*1;
-    LONG g_NumUniqueStacks = 0;
-    bool g_fReachedMemLimit = false;
-    long g_nTotMyStlAllocBytes = 0;
-    long g_nTotMyStlFreedBytes = 0;
-    long g_nTotFramesCollected = 0;
+    LONG _MyStlAllocCurrentTotalAlloc = 0;
+    LONG _MyStlAllocLimit = 65536*1;
+    LONG _NumUniqueStacks = 0;
+    bool _fReachedMemLimit = false;
+    long _MyStlAllocBytesEverAlloc = 0;
+    long _MyStlTotBytesEverFreed = 0;
+    long _nTotFramesCollected = 0;
+    int _nTotNumHeapAllocs;// total # of allocations by AllocHeap
+    LONGLONG _TotNumBytesHeapAlloc; // total # bytes alloc'd by AllocHeap
 };
 extern StlAllocStats g_MyStlAllocStats;
+void InitCollectStacks();
+void UninitCollectStacks();
 
 
 extern DWORD g_dwMainThread;
-extern int g_nTotalAllocs;
-extern LONGLONG g_TotalAllocSize;
 
 extern WCHAR * g_strHeapAllocSizesToCollect;
 extern WCHAR * g_strHeapAllocThresholds;

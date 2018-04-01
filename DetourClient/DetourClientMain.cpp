@@ -429,7 +429,7 @@ void HookInMyOwnVersion(BOOL fHook)
         _ASSERT_EXPR(res == S_OK, L"Redirecting detour to free heap");
 
 #ifndef _WIN64
-        res = fnRedirectDetour(DTF_NdrClientCall2, DetourNdrClientCall2, (PVOID*)&Real_NdrClientCall2);
+//        res = fnRedirectDetour(DTF_NdrClientCall2, DetourNdrClientCall2, (PVOID*)&Real_NdrClientCall2);
         _ASSERT_EXPR(res == S_OK, L"Redirecting detour to MyNdrClientCall2");
 #endif _WIN64
 
@@ -540,6 +540,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 
 
+    InitCollectStacks();
 
 	RecurDownSomeLevels(200);
 
@@ -574,16 +575,12 @@ CLINKAGE void EXPORT StartVisualStudio()
     GetModuleFileNameA(0, &buff[0], (DWORD)buff.length());
 
     LONGLONG nStacksCollected = GetNumStacksCollected();
-    sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d", g_nTotalAllocs, g_TotalAllocSize, nStacksCollected, g_MyStlAllocStats.g_MyStlAllocTotalAlloc);
+    sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d", g_MyStlAllocStats._nTotNumHeapAllocs, g_MyStlAllocStats._TotNumBytesHeapAlloc, nStacksCollected, g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc);
 
-    if (g_hHeap != nullptr)
-    {
-//        HeapDestroy(g_hHeap);
-  //      g_hHeap = nullptr;
-    }
+    UninitCollectStacks();
 
     MessageBoxA(0, &buff[0], "Calling the WinApi version of MessageboxA", 0);
-    _ASSERT_EXPR(g_nTotalAllocs > 400 && g_TotalAllocSize > 3000, L"#expected > 400 allocations of >3000 bytes");
+    _ASSERT_EXPR(g_MyStlAllocStats._nTotNumHeapAllocs > 400 && g_MyStlAllocStats._TotNumBytesHeapAlloc > 3000, L"#expected > 400 allocations of >3000 bytes");
     _ASSERT_EXPR(nStacksCollected > 50, L"#expected > 50 stacks collected");
 
 }

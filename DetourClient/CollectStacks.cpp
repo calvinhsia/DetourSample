@@ -11,15 +11,13 @@ WCHAR * g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
 int g_NumFramesTocapture = 20;
 SIZE_T g_HeapAllocSizeMinValue = 0;// 1048576;
 
-HANDLE g_hHeap = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ g_MyStlAllocStats.g_MyStlAllocLimit);
+HANDLE g_hHeap;
 
 vector<HeapSizeData> g_heapAllocSizes;
 
 extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
 
 CComAutoCriticalSection g_critSectHeapAlloc;
-int g_nTotalAllocs;
-LONGLONG g_TotalAllocSize;
 
 //#define LIMITBYNUMUNIQUESTACKS
 
@@ -77,8 +75,8 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 				//    throw std::bad_alloc();
 				//}
 		//#endif LIMITSTACKMEMORY
-		InterlockedAdd(&g_MyStlAllocStats.g_MyStlAllocTotalAlloc, nSize);
-        g_MyStlAllocStats.g_nTotMyStlAllocBytes += nSize;
+		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, nSize);
+        g_MyStlAllocStats._MyStlAllocBytesEverAlloc += nSize;
 		void *pv;
 		pv = HeapAlloc(g_hHeap, 0, nSize);
 		//if (Real_RtlAllocateHeap == nullptr)
@@ -98,8 +96,9 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 	void deallocate(T* const p, size_t n) const
 	{
 		unsigned nSize = (UINT)n * sizeof(T);
-		InterlockedAdd(&g_MyStlAllocStats.g_MyStlAllocTotalAlloc, -((int)nSize));
-        g_MyStlAllocStats.g_nTotMyStlFreedBytes += nSize;
+		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, -((int)nSize));
+        g_MyStlAllocStats._MyStlTotBytesEverFreed += nSize;
+        // upon ininitialize, g_hHeap is null, ebcause the heap has already been deleted, deleting all our objects
         if (g_hHeap != nullptr)
         {
             HeapFree(g_hHeap, 0, p);
@@ -109,7 +108,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 
 	}
 #ifndef MYSTLALLOCSTATICHEAP
-	HANDLE m_hHeap; // a heap to use to allocate our stuff. If 0, use VSAssert private debug heap
+//	HANDLE m_hHeap; // a heap to use to allocate our stuff. If 0, use VSAssert private debug heap
 #endif MYSTLALLOCSTATICHEAP
 };
 
@@ -179,17 +178,17 @@ struct StacksForStackType
 	bool AddNewStack(int numFramesToSkip)
 	{
 		bool fDidAdd = false;
-		if (!g_MyStlAllocStats.g_fReachedMemLimit)
+		if (!g_MyStlAllocStats._fReachedMemLimit)
 		{
 			CallStack stack(numFramesToSkip);
 			auto hash = stack.stackHash;
 			auto res = _stacks.find(hash);
 			if (res == _stacks.end())
 			{
-				if (!g_MyStlAllocStats.g_fReachedMemLimit)
+				if (!g_MyStlAllocStats._fReachedMemLimit)
 				{
-                    g_MyStlAllocStats.g_NumUniqueStacks++;
-                    g_MyStlAllocStats.g_nTotFramesCollected += stack.vecFrames.size();
+                    g_MyStlAllocStats._NumUniqueStacks++;
+                    g_MyStlAllocStats._nTotFramesCollected += stack.vecFrames.size();
 					_stacks.insert(mapStackHashToStack::value_type(hash, move(stack)));
 #ifdef LIMITBYNUMUNIQUESTACKS
 					if (g_NumUniqueStacks > 100)
@@ -236,8 +235,21 @@ typedef unordered_map<mapKey, StacksForStackType
 
 // map the Size of an alloc to all the stacks that allocated that size.
 // note: if we're looking for all allocs of a specific size (e.g. 1Mb), then no need for a map by size (because all keys will be the same): more efficient to just use a mapStacks
-mapStacksByStackType g_mapStacksByStackType;
+mapStacksByStackType *g_pmapStacksByStackType;
 
+void InitCollectStacks()
+{
+    g_hHeap = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ g_MyStlAllocStats._MyStlAllocLimit);
+    g_pmapStacksByStackType = new mapStacksByStackType();
+}
+
+// call after undetouring
+void UninitCollectStacks()
+{
+    delete g_pmapStacksByStackType;
+    HeapDestroy(g_hHeap);
+    g_hHeap = 0;
+}
 
 
 #if TESTING
@@ -287,8 +299,8 @@ LONGLONG GetNumStacksCollected()
 	LONGLONG nRpcStacks[2] = { 0 };
     //g_MyStlAllocStats.g_fReachedMemLimit = false;
     //g_MyStlAllocStats.g_MyStlAllocLimit *= 2; // double mem used: we're done with detouring
-	auto save_g_MyStlAllocTotalAlloc = g_MyStlAllocStats.g_MyStlAllocTotalAlloc;
-	for (auto &entry : g_mapStacksByStackType)
+	auto save_g_MyStlAllocTotalAlloc = g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc;
+	for (auto &entry : *g_pmapStacksByStackType)
 	{
 		auto key = entry.first;
 		switch (key.first)
@@ -318,7 +330,7 @@ LONGLONG GetNumStacksCollected()
 			break;
 		}
 	}
-    g_MyStlAllocStats.g_MyStlAllocTotalAlloc = save_g_MyStlAllocTotalAlloc;
+    g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc = save_g_MyStlAllocTotalAlloc;
 	/*
 	Sample output from OutputWindow:
 	sizeAlloc=72 cnt=25
@@ -345,8 +357,8 @@ LONGLONG GetNumStacksCollected()
 
 	*/
 
-	_ASSERT_EXPR(g_MyStlAllocStats.g_fReachedMemLimit || g_nTotalAllocs == nTotCnt, L"Total # allocs shouuld match");
-	_ASSERT_EXPR(g_MyStlAllocStats.g_fReachedMemLimit || g_TotalAllocSize == nTotSize, L"Total size allocs should match");
+	_ASSERT_EXPR(g_MyStlAllocStats._fReachedMemLimit || g_MyStlAllocStats._nTotNumHeapAllocs == nTotCnt, L"Total # allocs shouuld match");
+	_ASSERT_EXPR(g_MyStlAllocStats._fReachedMemLimit || g_MyStlAllocStats._TotNumBytesHeapAlloc == nTotSize, L"Total size allocs should match");
 	return nTotCnt;
 }
 
@@ -372,8 +384,8 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 			switch (stackType)
 			{
 			case StackTypeHeapAlloc:
-				g_nTotalAllocs++;
-				g_TotalAllocSize += (int)stackSubType;
+				g_MyStlAllocStats._nTotNumHeapAllocs++;
+				g_MyStlAllocStats._TotNumBytesHeapAlloc += (int)stackSubType;
 				break;
 			case StackTypeRpc:
 				break;
@@ -383,12 +395,12 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 
 			// We want to use the size as the key: see if we've seen this key before
 			mapKey key(stackType, stackSubType);
-			auto res = g_mapStacksByStackType.find(key);
-			if (res == g_mapStacksByStackType.end())
+			auto res = g_pmapStacksByStackType->find(key);
+			if (res == g_pmapStacksByStackType->end())
 			{
-				if (!g_MyStlAllocStats.g_fReachedMemLimit)
+				if (!g_MyStlAllocStats._fReachedMemLimit)
 				{
-					g_mapStacksByStackType.insert(mapStacksByStackType::value_type(key, StacksForStackType(numFramesToSkip)));
+					g_pmapStacksByStackType->insert(mapStacksByStackType::value_type(key, StacksForStackType(numFramesToSkip)));
 					fDidCollectStack = true;
 				}
 			}
@@ -401,13 +413,13 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 	}
 	catch (const std::bad_alloc&)
 	{
-        g_MyStlAllocStats.g_fReachedMemLimit = true;
+        g_MyStlAllocStats._fReachedMemLimit = true;
 	}
-	if (fDidCollectStack && !g_MyStlAllocStats.g_fReachedMemLimit)
+	if (fDidCollectStack && !g_MyStlAllocStats._fReachedMemLimit) 
 	{
-		if (g_MyStlAllocStats.g_MyStlAllocTotalAlloc >= g_MyStlAllocStats.g_MyStlAllocLimit)
+		if (g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc >= g_MyStlAllocStats._MyStlAllocLimit)
 		{
-            g_MyStlAllocStats.g_fReachedMemLimit = true;
+            g_MyStlAllocStats._fReachedMemLimit = true;
 		}
 	}
 	return fDidCollectStack;
@@ -417,8 +429,8 @@ bool UnCollectStack(StackType stackType, DWORD stackParam)
 {
 	bool IsTracked = false;
 	mapKey key(stackType, stackParam);
-	auto res = g_mapStacksByStackType.find(key);
-	if (res != g_mapStacksByStackType.end())
+	auto res = g_pmapStacksByStackType->find(key);
+	if (res != g_pmapStacksByStackType->end())
 	{
 		IsTracked = true;
 	}
