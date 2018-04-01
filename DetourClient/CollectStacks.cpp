@@ -1,11 +1,10 @@
 
 #include "..\DetourSharedBase\DetourShared.h"
-#include "unordered_map"
-#include "memory"
 #include "atlbase.h"
 #include "DetourClientMain.h"
 
 
+using namespace std;
 
 WCHAR * g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
 int g_NumFramesTocapture = 20;
@@ -19,223 +18,14 @@ extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
 
 CComAutoCriticalSection g_critSectHeapAlloc;
 
-//#define LIMITBYNUMUNIQUESTACKS
 
 StlAllocStats g_MyStlAllocStats;
-
-#define USEMYSTLALLOC 
-//#define MYSTLALLOCSTATICHEAP
-//#define LIMITSTACKMEMORY
-
-#ifdef MYSTLALLOCSTATICHEAP
-static HANDLE m_hHeap = g_hHeap;
-#endif MYSTLALLOCSTATICHEAP
-
-
-template <class T>
-struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use-a-custom-allocator-for-your-stl-container/
-{
-	typedef T value_type;
-	MySTLAlloc()
-	{
-#ifndef MYSTLALLOCSTATICHEAP
-//		m_hHeap = g_hHeap;
-#endif MYSTLALLOCSTATICHEAP
-	}
-	// A converting copy constructor:
-	template<class U> MySTLAlloc(const MySTLAlloc<U>& other)
-	{
-#ifndef MYSTLALLOCSTATICHEAP
-//		m_hHeap = other.m_hHeap;
-#endif MYSTLALLOCSTATICHEAP
-	}
-	template<class U> bool operator==(const MySTLAlloc<U>&) const
-	{
-		return true;
-	}
-	template<class U> bool operator!=(const MySTLAlloc<U>&) const
-	{
-		return false;
-	}
-	T* allocate(const size_t n) const
-	{
-		if (n == 0)
-		{
-			return nullptr;
-		}
-		if (n > static_cast<size_t>(-1) / sizeof(T))
-		{
-			throw std::bad_array_new_length();
-		}
-		unsigned nSize = (UINT)n * sizeof(T);
-		//#ifdef LIMITSTACKMEMORY
-
-				//if (g_MyStlAllocTotalAlloc + (int)nSize >= g_MyStlAllocLimit)
-				//{
-				//    throw std::bad_alloc();
-				//}
-		//#endif LIMITSTACKMEMORY
-		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, nSize);
-        g_MyStlAllocStats._MyStlAllocBytesEverAlloc += nSize;
-		void *pv;
-		pv = HeapAlloc(g_hHeap, 0, nSize);
-		//if (Real_RtlAllocateHeap == nullptr)
-  //      {
-  //      }
-  //      else
-  //      {
-  //          pv = Real_RtlAllocateHeap(m_hHeap, 0, nSize);
-  //      }
-		if (pv == 0)
-		{
-			throw std::bad_alloc();
-//			_ASSERT_EXPR(false, L"MyStlAlloc failed to allocate:");// out of memmory allocating %d(%x).\n Try reducing stack size limit.For 32 bit proc, try http://blogs.msdn.com/b/calvin_hsia/archive/2010/09/27/10068359.aspx ", nSize, nSize));
-		}
-		return static_cast<T*>(pv);
-	}
-	void deallocate(T* const p, size_t n) const
-	{
-		unsigned nSize = (UINT)n * sizeof(T);
-		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, -((int)nSize));
-        g_MyStlAllocStats._MyStlTotBytesEverFreed += nSize;
-        // upon ininitialize, g_hHeap is null, ebcause the heap has already been deleted, deleting all our objects
-        if (g_hHeap != nullptr)
-        {
-            HeapFree(g_hHeap, 0, p);
-        }
-	}
-	~MySTLAlloc() {
-
-	}
-#ifndef MYSTLALLOCSTATICHEAP
-//	HANDLE m_hHeap; // a heap to use to allocate our stuff. If 0, use VSAssert private debug heap
-#endif MYSTLALLOCSTATICHEAP
-};
-
-template <class T>
-inline void hash_combine(std::size_t & seed, const T & v)
-{
-	std::hash<T> hasher;
-	seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-}
-
-// need a hash function for pair<int,int>
-template<typename S, typename T> struct hash<pair<S, T>>
-{
-	inline size_t operator()(const pair<S, T> & v) const
-	{
-		size_t seed = 0;
-		::hash_combine(seed, v.first);
-		::hash_combine(seed, v.second);
-		return seed;
-	}
-};
-
-
-typedef vector<PVOID
-#ifdef USEMYSTLALLOC
-	, MySTLAlloc<PVOID>
-#endif USEMYSTLALLOC
-> vecFrames;
-
-// Collects the callstack and calculates the stack hash
-// represents a single call stack and how often the identical stack occurs
-struct CallStack
-{
-	CallStack(int NumFramesToSkip) : cnt(1)
-	{
-		vecFrames.resize(g_NumFramesTocapture);
-		int nFrames = RtlCaptureStackBackTrace(
-			/*FramesToSkip*/ NumFramesToSkip,
-			/*FramesToCapture*/ g_NumFramesTocapture,
-			&vecFrames[0],
-			&stackHash
-		);
-		vecFrames.resize(nFrames);
-	}
-	ULONG stackHash; // hash of stack 4 bytes in both x86 and amd64
-	int cnt;   // # of occurrences of this particular stack
-	vecFrames vecFrames; // the stack frames
-};
-
-typedef unordered_map<UINT, CallStack // can't use unique_ptr because can't override it's allocator and thus can cause deadlock
-#ifdef USEMYSTLALLOC
-	,
-	hash<UINT>,
-	equal_to<UINT>,
-	MySTLAlloc<pair<const UINT, CallStack> >
-#endif USEMYSTLALLOC
-> mapStackHashToStack; // stackhash=>CallStack
-
-// represents the stacks for a particular stack type : e.g. the 100k allocations
-// if the stacks are identical, the count is bumped.
-struct StacksForStackType
-{
-	StacksForStackType(int numFramesToSkip)
-	{
-		AddNewStack(numFramesToSkip);
-	}
-	bool AddNewStack(int numFramesToSkip)
-	{
-		bool fDidAdd = false;
-		if (!g_MyStlAllocStats._fReachedMemLimit)
-		{
-			CallStack stack(numFramesToSkip);
-			auto hash = stack.stackHash;
-			auto res = _stacks.find(hash);
-			if (res == _stacks.end())
-			{
-				if (!g_MyStlAllocStats._fReachedMemLimit)
-				{
-                    g_MyStlAllocStats._NumUniqueStacks++;
-                    g_MyStlAllocStats._nTotFramesCollected += stack.vecFrames.size();
-					_stacks.insert(mapStackHashToStack::value_type(hash, move(stack)));
-#ifdef LIMITBYNUMUNIQUESTACKS
-					if (g_NumUniqueStacks > 100)
-					{
-						g_fReachedMemLimit = true;
-					}
-#endif LIMITBYNUMUNIQUESTACKS
-					fDidAdd = true;
-				}
-			}
-			else
-			{
-				res->second.cnt++;
-				fDidAdd = true;
-			}
-		}
-		return fDidAdd;
-}
-
-	LONGLONG GetTotalNumStacks()
-	{
-		auto tot = 0l;
-		for (auto &stack : _stacks)
-		{
-			tot += stack.second.cnt;
-		}
-		return tot;
-	}
-	// map of stack hash to CalLStack
-	mapStackHashToStack _stacks;
-
-};
-
-typedef pair<StackType, UINT> mapKey;
-
-typedef unordered_map<mapKey, StacksForStackType
-#ifdef USEMYSTLALLOC
-	,
-	hash<mapKey>,
-	equal_to<mapKey>,
-	MySTLAlloc<pair<const mapKey, StacksForStackType>>
-#endif USEMYSTLALLOC
-> mapStacksByStackType;
-
-// map the Size of an alloc to all the stacks that allocated that size.
-// note: if we're looking for all allocs of a specific size (e.g. 1Mb), then no need for a map by size (because all keys will be the same): more efficient to just use a mapStacks
 mapStacksByStackType *g_pmapStacksByStackType;
+
+
+
+
+
 
 void InitCollectStacks()
 {
@@ -371,14 +161,6 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 	{
 
 		CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
-#ifdef LIMITSTACKMEMORY
-		// try limiting to a fixed amount of mem. We could use VirtualAlloc for a 64k block (or multiple of 64)
-		if (g_MyStlAllocTotalAlloc + 10 * (g_NumFramesTocapture * (int)(sizeof(PVOID))) > g_MyStlAllocLimit)
-		{
-			g_fReachedMemLimit = true;
-		}
-		else
-#endif LIMITSTACKMEMORY
 
 		{
 			switch (stackType)
