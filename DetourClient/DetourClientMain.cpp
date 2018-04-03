@@ -207,7 +207,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 #ifndef _WIN64
 
 _declspec (thread) // note: when this code runs in VS, random failures when initializing the std::stack in a TLS: the stack would be empty even when the prior line says push(). workaround: make the TLS point to a struct containing the stl::stack
-std::stack<pair<LPVOID, DWORD>> _stackRetAddresses; // return address, TickCount
+std::stack<std::pair<LPVOID, DWORD>> _stackRetAddresses; // return address, TickCount
 
 void _stdcall pushvalue(LPVOID val)
 {
@@ -429,7 +429,7 @@ void HookInMyOwnVersion(BOOL fHook)
         _ASSERT_EXPR(res == S_OK, L"Redirecting detour to free heap");
 
 #ifndef _WIN64
-//        res = fnRedirectDetour(DTF_NdrClientCall2, DetourNdrClientCall2, (PVOID*)&Real_NdrClientCall2);
+        res = fnRedirectDetour(DTF_NdrClientCall2, DetourNdrClientCall2, (PVOID*)&Real_NdrClientCall2);
         _ASSERT_EXPR(res == S_OK, L"Redirecting detour to MyNdrClientCall2");
 #endif _WIN64
 

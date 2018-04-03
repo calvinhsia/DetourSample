@@ -6,7 +6,6 @@
 #include "memory"
 #include <functional>
 #include <algorithm>
-using namespace std;
 
 typedef enum {
     StackTypeHeapAlloc = 1,
@@ -28,7 +27,7 @@ struct HeapSizeData
 
 //  Contains HeapSizeData for exact match
 //once initialized, this vector is const except for the counts, which are interlocked when changed. Thus it's thread safe
-extern vector<HeapSizeData> g_heapAllocSizes;
+extern std::vector<HeapSizeData> g_heapAllocSizes;
 extern DWORD g_dwMainThread;
 
 extern WCHAR * g_strHeapAllocSizesToCollect;
@@ -119,9 +118,9 @@ inline void hash_combine(std::size_t & seed, const T & v)
 }
 
 // need a hash function for pair<int,int>
-template<typename S, typename T> struct hash<pair<S, T>>
+template<typename S, typename T> struct std::hash<std::pair<S, T>>
 {
-    inline size_t operator()(const pair<S, T> & v) const
+    inline size_t operator()(const std::pair<S, T> & v) const
     {
         size_t seed = 0;
         ::hash_combine(seed, v.first);
@@ -131,7 +130,7 @@ template<typename S, typename T> struct hash<pair<S, T>>
 };
 
 
-typedef vector<PVOID
+typedef std::vector<PVOID
     , MySTLAlloc<PVOID>
 > vecFrames;
 
@@ -155,11 +154,11 @@ struct CallStack
     vecFrames vecFrames; // the stack frames
 };
 
-typedef unordered_map<UINT, CallStack // can't use unique_ptr because can't override it's allocator and thus can cause deadlock
+typedef std::unordered_map<UINT, CallStack // can't use unique_ptr because can't override it's allocator and thus can cause deadlock
     ,
-    hash<UINT>,
-    equal_to<UINT>,
-    MySTLAlloc<pair<const UINT, CallStack> >
+    std::hash<UINT>,
+    std::equal_to<UINT>,
+    MySTLAlloc<std::pair<const UINT, CallStack> >
 > mapStackHashToStack; // stackhash=>CallStack
 
                        // represents the stacks for a particular stack type : e.g. the 100k allocations
@@ -184,7 +183,7 @@ struct StacksForStackType
                 {
                     g_MyStlAllocStats._NumUniqueStacks++;
                     g_MyStlAllocStats._nTotFramesCollected += stack.vecFrames.size();
-                    _stacks.insert(mapStackHashToStack::value_type(hash, move(stack)));
+                    _stacks.insert(mapStackHashToStack::value_type(hash, std::move(stack)));
                     fDidAdd = true;
                 }
             }
@@ -211,13 +210,13 @@ struct StacksForStackType
 
 };
 
-typedef pair<StackType, UINT> mapKey;
+typedef std::pair<StackType, UINT> mapKey;
 
-typedef unordered_map<mapKey, StacksForStackType
+typedef std::unordered_map<mapKey, StacksForStackType
     ,
-    hash<mapKey>,
-    equal_to<mapKey>,
-    MySTLAlloc<pair<const mapKey, StacksForStackType>>
+    std::hash<mapKey>,
+    std::equal_to<mapKey>,
+    MySTLAlloc<std::pair<const mapKey, StacksForStackType>>
 > mapStacksByStackType;
 
 // map the Size of an alloc to all the stacks that allocated that size.

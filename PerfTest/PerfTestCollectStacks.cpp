@@ -177,7 +177,7 @@ struct StacksForStackType
 			if (!g_fReachedMemLimit)
 			{
 				g_NumUniqueStacks++;
-				g_nTotFramesCollected += stack->vecFrames.size();
+				g_nTotFramesCollected += (long)stack->vecFrames.size();
 				_stacks.insert(mapStackHashToStack::value_type(hash, move(stack)));
 
 #ifdef LIMITBYNUMUNIQUESTACKS
