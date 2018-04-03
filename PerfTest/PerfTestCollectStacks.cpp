@@ -133,20 +133,20 @@ typedef vector<PVOID
 // represents a single call stack and how often the identical stack occurs
 struct CallStack
 {
-	CallStack(int NumFramesToSkip) : cnt(1)
+	CallStack(int NumFramesToSkip) : _nOccur(1)
 	{
-		vecFrames.resize(g_NumFramesTocapture);
+		_vecFrames.resize(g_NumFramesTocapture);
 		int nFrames = RtlCaptureStackBackTrace(
 			/*FramesToSkip*/ NumFramesToSkip,
 			/*FramesToCapture*/ g_NumFramesTocapture,
-			&vecFrames[0],
-			&stackHash
+			&_vecFrames[0],
+			&_stackHash
 		);
-		vecFrames.resize(nFrames);
+		_vecFrames.resize(nFrames);
 	}
-	ULONG stackHash; // hash of stack 4 bytes in both x86 and amd64
-	int cnt;   // # of occurrences of this particular stack
-	vecFrames vecFrames; // the stack frames
+	ULONG _stackHash; // hash of stack 4 bytes in both x86 and amd64
+	int _nOccur;   // # of occurrences of this particular stack
+	vecFrames _vecFrames; // the stack frames
 };
 
 typedef unordered_map<UINT, unique_ptr<CallStack>
@@ -170,14 +170,14 @@ struct StacksForStackType
 	{
 		bool fDidAdd = false;
 		auto stack = make_unique<CallStack>(numFramesToSkip);
-		auto hash = stack->stackHash;
+		auto hash = stack->_stackHash;
 		auto res = _stacks.find(hash);
 		if (res == _stacks.end())
 		{
 			if (!g_fReachedMemLimit)
 			{
 				g_NumUniqueStacks++;
-				g_nTotFramesCollected += (long)stack->vecFrames.size();
+				g_nTotFramesCollected += (long)stack->_vecFrames.size();
 				_stacks.insert(mapStackHashToStack::value_type(hash, move(stack)));
 
 #ifdef LIMITBYNUMUNIQUESTACKS
@@ -191,7 +191,7 @@ struct StacksForStackType
 		}
 		else
 		{
-			res->second->cnt++;
+			res->second->_nOccur++;
 			fDidAdd = true;
 		}
 		return fDidAdd;
@@ -202,7 +202,7 @@ struct StacksForStackType
 		auto tot = 0l;
 		for (auto &stack : _stacks)
 		{
-			tot += stack.second->cnt;
+			tot += stack.second->_nOccur;
 		}
 		return tot;
 	}
@@ -291,7 +291,7 @@ LONGLONG GetNumStacksCollected()
 			for (auto &stk : entry.second->_stacks)
 			{
 				nUniqueStacks++;
-				for (auto frm : stk.second->vecFrames)
+				for (auto frm : stk.second->_vecFrames)
 				{
 					nFrames++;
 					auto f = frm;  // output {frm}

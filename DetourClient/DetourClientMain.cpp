@@ -64,20 +64,6 @@ ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Li
 
 #endif
 
-void foobar()
-{
-    SIZE_T sizeAlloc = 72;
-    auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [sizeAlloc](HeapSizeData data)
-    {
-        if (data._nSize == sizeAlloc)
-        {
-            return true;
-        }
-        return false;
-    });
-    GetModuleFileName((HMODULE)(*it)._nSize, nullptr, NULL);
-
-}
 
 bool MyPred(SIZE_T size, HeapSizeData data)
 {
