@@ -544,7 +544,7 @@ CLINKAGE void EXPORT StartVisualStudio()
     MessageBoxA(0, buff.c_str(), "Calling the WinApi version of MessageboxA", 0);
     for (int i = 0; i < 10000; i++)
     {
-        void *p = HeapAlloc(GetProcessHeap(), 0, 1000 + i);
+//        void *p = HeapAlloc(GetProcessHeap(), 0, 1000 + i);
         //    HeapFree(GetProcessHeap(), 0, p);
     }
 

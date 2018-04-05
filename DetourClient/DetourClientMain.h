@@ -8,8 +8,9 @@
 #include <algorithm>
 
 typedef enum {
-    StackTypeHeapAlloc = 1,
-    StackTypeRpc = 2,
+    StackTypeHeapAlloc = 0,
+    StackTypeRpc = 1,
+	StackTypeMax = 2
 } StackType;
 
 struct HeapSizeData
@@ -74,6 +75,11 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
     }
     T* allocate(const size_t n) const
     {
+		if (g_MyStlAllocStats._fReachedMemLimit)
+		{
+			auto x = 2;
+
+		}
         if (n == 0)
         {
             return nullptr;
@@ -89,6 +95,8 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
         pv = HeapAlloc(g_hHeap, 0, nSize);
         if (pv == 0)
         {
+			g_MyStlAllocStats._fReachedMemLimit = true;
+			OutputDebugStringA("\nThrowBadAlloc");
             throw std::bad_alloc();
             //			_ASSERT_EXPR(false, L"MyStlAlloc failed to allocate:");// out of memmory allocating %d(%x).\n Try reducing stack size limit.For 32 bit proc, try http://blogs.msdn.com/b/calvin_hsia/archive/2010/09/27/10068359.aspx ", nSize, nSize));
         }
@@ -99,6 +107,10 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
         unsigned nSize = (UINT)n * sizeof(T);
         InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, -((int)nSize));
         g_MyStlAllocStats._MyStlTotBytesEverFreed += nSize;
+		if (g_MyStlAllocStats._fReachedMemLimit)
+		{
+			auto x = 2;
+		}
         // upon ininitialize, g_hHeap is null, ebcause the heap has already been deleted, deleting all our objects
         if (g_hHeap != nullptr)
         {
@@ -110,24 +122,24 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
     }
 };
 
-template <class T>
-inline void hash_combine(std::size_t & seed, const T & v)
-{
-    std::hash<T> hasher;
-    seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-}
-
-// need a hash function for pair<int,int>
-template<typename S, typename T> struct std::hash<std::pair<S, T>>
-{
-    inline size_t operator()(const std::pair<S, T> & v) const
-    {
-        size_t seed = 0;
-        ::hash_combine(seed, v.first);
-        ::hash_combine(seed, v.second);
-        return seed;
-    }
-};
+//template <class T>
+//inline void hash_combine(std::size_t & seed, const T & v)
+//{
+//    std::hash<T> hasher;
+//    seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+//}
+//
+//// need a hash function for pair<int,int>
+//template<typename S, typename T> struct std::hash<std::pair<S, T>>
+//{
+//    inline size_t operator()(const std::pair<S, T> & v) const
+//    {
+//        size_t seed = 0;
+//        ::hash_combine(seed, v.first);
+//        ::hash_combine(seed, v.second);
+//        return seed;
+//    }
+//};
 
 
 typedef std::vector<PVOID
@@ -183,7 +195,7 @@ struct StacksForStackType
                 {
                     g_MyStlAllocStats._NumUniqueStacks++;
                     g_MyStlAllocStats._nTotFramesCollected += (long)stack._vecFrames.size();
-                    _stacks.insert(mapStackHashToStack::value_type(hash, std::move(stack)));
+                    _stacks.insert(mapStackHashToStack::value_type(hash, std::move_if_noexcept(stack)));
                     fDidAdd = true;
                 }
             }
@@ -210,7 +222,7 @@ struct StacksForStackType
 
 };
 
-typedef std::pair<StackType, UINT> mapKey;
+typedef UINT mapKey;
 
 typedef std::unordered_map<mapKey, StacksForStackType
     ,
@@ -221,7 +233,7 @@ typedef std::unordered_map<mapKey, StacksForStackType
 
 // map the Size of an alloc to all the stacks that allocated that size.
 // note: if we're looking for all allocs of a specific size (e.g. 1Mb), then no need for a map by size (because all keys will be the same): more efficient to just use a mapStacks
-extern mapStacksByStackType *g_pmapStacksByStackType;
+extern mapStacksByStackType *g_pmapStacksByStackType[];
 
 
 
@@ -231,7 +243,7 @@ void InitCollectStacks();
 void UninitCollectStacks();
 
 
-bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraData, int numFramesToSkip);
+bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraData, int numFramesToSkip) noexcept;
 bool UnCollectStack(StackType stackType, DWORD stackParam);
 
 void DoSomeManagedCode();
