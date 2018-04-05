@@ -156,7 +156,7 @@ LONGLONG GetNumStacksCollected()
 }
 
 // extraInfo can be e.g. elapsed ticks. Don't store in stacks, but raise ETW event with it
-bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraInfo, int numFramesToSkip) noexcept
+bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraInfo, int numFramesToSkip) //noexcept
 {
 	bool fDidCollectStack = false;
 	try
@@ -181,7 +181,7 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 			if (!g_MyStlAllocStats._fReachedMemLimit)
 			{
 				auto stacks = StacksForStackType(numFramesToSkip);
-				g_pmapStacksByStackType[stackType]->insert(mapStacksByStackType::value_type(key, std::move_if_noexcept(stacks)));
+				g_pmapStacksByStackType[stackType]->insert(mapStacksByStackType::value_type(key, std::move(stacks)));
 				fDidCollectStack = true;
 			}
 		}
