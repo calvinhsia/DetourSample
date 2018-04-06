@@ -85,8 +85,6 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			throw std::bad_array_new_length();
 		}
 		unsigned nSize = (UINT)n * sizeof(T);
-		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, nSize);
-		g_MyStlAllocStats._MyStlAllocBytesEverAlloc += nSize;
 		void *pv;
 		pv = HeapAlloc(g_hHeap, 0, nSize);
 		if (pv == 0)
@@ -94,6 +92,8 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			g_MyStlAllocStats._fReachedMemLimit = true;
 			throw std::bad_alloc();
 		}
+		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, nSize);
+		g_MyStlAllocStats._MyStlAllocBytesEverAlloc += nSize;
 		return static_cast<T*>(pv);
 	}
 	void deallocate(T* const p, size_t n) const

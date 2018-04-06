@@ -67,7 +67,6 @@ void UninitCollectStacks()
 			allocator.deallocate((BYTE *)g_pmapStacksByStackType[i], sizeof(mapStacksByStackType));
 		}
 	}
-	Sleep(1000000);
 //	MessageBoxA(0, "about to Heap destroy", "", 0);
 	HeapDestroy(g_hHeap);
 	g_hHeap = 0;
