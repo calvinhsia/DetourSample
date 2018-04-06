@@ -481,11 +481,41 @@ void RecurDownSomeLevels(int nLevel)
 	}
 	else
 	{
-//		CollectStack(StackTypeHeapAlloc, 1, 0, 2);
+		auto x = HeapAlloc(GetProcessHeap(), 0, 1000);
+		HeapFree(GetProcessHeap(), 0, x);
+		//		CollectStack(StackTypeHeapAlloc, 1, 0, 2);
 //		g_MyStlAllocStats.clear();
 	}
 }
 
+DWORD WINAPI ThreadRoutine(PVOID param)
+{
+	int threadIndex = (int)param;
+	RecurDownSomeLevels(threadIndex);
+	auto x = HeapAlloc(GetProcessHeap(), 0, 1000);
+	HeapFree(GetProcessHeap(), 0, x);
+	return 0;
+}
+
+#define NUMTHREADS 200
+void DoLotsOfThreads()
+{
+	DWORD dwThreadIds[NUMTHREADS];
+	HANDLE hThreads[NUMTHREADS];
+	for (int iThread = 0; iThread < NUMTHREADS; iThread++)
+	{
+		hThreads[iThread] = CreateThread(/*LPSECURITY_ATTRIBUTES=*/NULL,
+			/*dwStackSize=*/ NULL,
+			&ThreadRoutine,
+			/* lpThreadParameter*/(PVOID)iThread,
+			/*dwCreateFlags*/ 0, /// CREATE_SUSPENDED
+			&dwThreadIds[iThread]
+		);
+	}
+	WaitForMultipleObjects(NUMTHREADS, hThreads, /*bWaitAll*/ true, /*dwMilliseconds*/ INFINITE);
+	auto x = 2;
+
+}
 
 CLINKAGE void EXPORT StartVisualStudio()
 {
@@ -534,6 +564,7 @@ CLINKAGE void EXPORT StartVisualStudio()
     HookInMyOwnVersion(true);
 
 
+	DoLotsOfThreads();
 
 
     auto h = GetModuleHandleA(0);
@@ -548,6 +579,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 //        void *p = HeapAlloc(GetProcessHeap(), 0, 1000 + i);
         //    HeapFree(GetProcessHeap(), 0, p);
     }
+
 
     DoSomeThreadingModelExperiments();
 
