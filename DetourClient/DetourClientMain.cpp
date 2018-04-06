@@ -65,6 +65,7 @@ bool MyTlsData::DllMain(ULONG ulReason)
 			g_numTlsInstances--;
 			HeapFree(GetProcessHeap(), 0, pMyTlsData); // HeapFree isn't detoured
 		}
+		_ASSERT_EXPR(g_numTlsInstances == 0, L"tls instance leak");
 		TlsFree(g_tlsIndex);
 		break;
 	case DLL_THREAD_DETACH:
