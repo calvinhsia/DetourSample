@@ -48,6 +48,7 @@ struct StlAllocStats
 	long _nTotFramesCollected = 0;
 	int _nTotNumHeapAllocs;// total # of allocations by AllocHeap
 	LONGLONG _TotNumBytesHeapAlloc; // total # bytes alloc'd by AllocHeap
+	void clear();
 };
 extern StlAllocStats g_MyStlAllocStats;
 
@@ -75,11 +76,6 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 	}
 	T* allocate(const size_t n) const
 	{
-		if (g_MyStlAllocStats._fReachedMemLimit)
-		{
-			auto x = 2;
-
-		}
 		if (n == 0)
 		{
 			return nullptr;
@@ -97,7 +93,6 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 		{
 			g_MyStlAllocStats._fReachedMemLimit = true;
 			throw std::bad_alloc();
-			//			_ASSERT_EXPR(false, L"MyStlAlloc failed to allocate:");// out of memmory allocating %d(%x).\n Try reducing stack size limit.For 32 bit proc, try http://blogs.msdn.com/b/calvin_hsia/archive/2010/09/27/10068359.aspx ", nSize, nSize));
 		}
 		return static_cast<T*>(pv);
 	}
@@ -106,10 +101,6 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 		unsigned nSize = (UINT)n * sizeof(T);
 		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, -((int)nSize));
 		g_MyStlAllocStats._MyStlTotBytesEverFreed += nSize;
-		if (g_MyStlAllocStats._fReachedMemLimit)
-		{
-			auto x = 2;
-		}
 		// upon ininitialize, g_hHeap is null, ebcause the heap has already been deleted, deleting all our objects
 		if (g_hHeap != nullptr)
 		{

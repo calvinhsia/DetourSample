@@ -481,7 +481,8 @@ void RecurDownSomeLevels(int nLevel)
 	}
 	else
 	{
-		CollectStack(StackTypeHeapAlloc, 1, 0, 2);
+//		CollectStack(StackTypeHeapAlloc, 1, 0, 2);
+//		g_MyStlAllocStats.clear();
 	}
 }
 
@@ -561,12 +562,15 @@ CLINKAGE void EXPORT StartVisualStudio()
     GetModuleFileNameA(0, &buff[0], (DWORD)buff.length());
 
     LONGLONG nStacksCollected = GetNumStacksCollected();
-    sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d", g_MyStlAllocStats._nTotNumHeapAllocs, g_MyStlAllocStats._TotNumBytesHeapAlloc, nStacksCollected, g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc);
+    sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d g_hHeap =%08x (%08x)", 
+		g_MyStlAllocStats._nTotNumHeapAllocs, g_MyStlAllocStats._TotNumBytesHeapAlloc, nStacksCollected, g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, (int)g_hHeap, (int)*(int *)g_hHeap);
 
-    UninitCollectStacks();
 
     MessageBoxA(0, &buff[0], "Calling the WinApi version of MessageboxA", 0);
-    _ASSERT_EXPR(g_MyStlAllocStats._nTotNumHeapAllocs > 400 && g_MyStlAllocStats._TotNumBytesHeapAlloc > 3000, L"#expected > 400 allocations of >3000 bytes");
+
+	UninitCollectStacks();
+
+	_ASSERT_EXPR(g_MyStlAllocStats._nTotNumHeapAllocs > 400 && g_MyStlAllocStats._TotNumBytesHeapAlloc > 3000, L"#expected > 400 allocations of >3000 bytes");
     _ASSERT_EXPR(nStacksCollected > 50, L"#expected > 50 stacks collected");
 
 }

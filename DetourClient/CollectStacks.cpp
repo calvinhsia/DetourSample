@@ -18,15 +18,39 @@ extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
 
 CComAutoCriticalSection g_critSectHeapAlloc;
 
-StlAllocStats g_MyStlAllocStats;
 mapStacksByStackType *g_pmapStacksByStackType[StackTypeMax];
+
+StlAllocStats g_MyStlAllocStats;
+
+void StlAllocStats::clear()
+{
+	for (int i = 0; i < StackTypeMax; i++)
+	{
+		if (g_pmapStacksByStackType[i] != nullptr)
+		{
+			g_pmapStacksByStackType[i]->clear();
+		}
+	}
+	_MyStlAllocCurrentTotalAlloc = 0;
+	_NumUniqueStacks = 0;;
+	_fReachedMemLimit = false;
+	_MyStlAllocBytesEverAlloc = 0;
+	_MyStlTotBytesEverFreed = 0;
+	_nTotFramesCollected = 0;
+	_nTotNumHeapAllocs = 0;
+	_TotNumBytesHeapAlloc = 0;
+	_fReachedMemLimit = false;
+}
 
 void InitCollectStacks()
 {
 	g_hHeap = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ g_MyStlAllocStats._MyStlAllocLimit);
 	for (int i = 0; i < StackTypeMax; i++)
 	{
-		g_pmapStacksByStackType[i] = new mapStacksByStackType();
+		MySTLAlloc<BYTE> allocator;
+		
+		g_pmapStacksByStackType[i] = new (allocator.allocate(sizeof(mapStacksByStackType))) mapStacksByStackType();
+//		g_pmapStacksByStackType[i] = new mapStacksByStackType();
 	}
 }
 
@@ -35,8 +59,16 @@ void UninitCollectStacks()
 {
 	for (int i = 0; i < StackTypeMax; i++)
 	{
-		delete g_pmapStacksByStackType[i];
+		MySTLAlloc<BYTE> allocator;
+		if (g_pmapStacksByStackType[i] != nullptr)
+		{
+	//		delete g_pmapStacksByStackType[i];
+			g_pmapStacksByStackType[i]->~mapStacksByStackType();
+			allocator.deallocate((BYTE *)g_pmapStacksByStackType[i], sizeof(mapStacksByStackType));
+		}
 	}
+	Sleep(1000000);
+//	MessageBoxA(0, "about to Heap destroy", "", 0);
 	HeapDestroy(g_hHeap);
 	g_hHeap = 0;
 }
@@ -180,8 +212,7 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		{
 			if (!g_MyStlAllocStats._fReachedMemLimit)
 			{
-				auto stacks = StacksForStackType(numFramesToSkip);
-				g_pmapStacksByStackType[stackType]->insert(mapStacksByStackType::value_type(key, std::move(stacks)));
+				g_pmapStacksByStackType[stackType]->insert(mapStacksByStackType::value_type(key, move(StacksForStackType(numFramesToSkip))));
 				fDidCollectStack = true;
 			}
 		}
