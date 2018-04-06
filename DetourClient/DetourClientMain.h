@@ -67,7 +67,7 @@ struct MyTlsData
 	static MyTlsData * g_pTlsDataChain;
 	static CComAutoCriticalSection g_tlsCritSect;
 	static volatile bool g_IsCreatingTlsData;
-
+	static int g_numTlsInstances;
 	static bool DllMain(ULONG ulReason);
 	static MyTlsData* GetTlsData();
 

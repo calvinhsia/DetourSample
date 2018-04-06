@@ -62,6 +62,7 @@ bool MyTlsData::DllMain(ULONG ulReason)
 			auto pMyTlsData = g_pTlsDataChain;
 			g_pTlsDataChain = g_pTlsDataChain->_pNextMyTlsData;
 			pMyTlsData->~MyTlsData();
+			g_numTlsInstances--;
 			HeapFree(GetProcessHeap(), 0, pMyTlsData); // HeapFree isn't detoured
 		}
 		TlsFree(g_tlsIndex);
@@ -90,6 +91,7 @@ bool MyTlsData::DllMain(ULONG ulReason)
 				{ // remove from the front of the list
 					g_pTlsDataChain = pTlsData->_pNextMyTlsData;
 				}
+				g_numTlsInstances--;
 			}
 			// can safely delete outside csect
 			pMyTlsData->~MyTlsData();
@@ -138,6 +140,7 @@ MyTlsData* MyTlsData::GetTlsData()
 			pMyTlsData = new (pmem) MyTlsData();
 			TlsSetValue(g_tlsIndex, pMyTlsData);
 			CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
+			g_numTlsInstances++;
 			pMyTlsData->_pNextMyTlsData = g_pTlsDataChain;
 			g_pTlsDataChain = pMyTlsData;
 		}
@@ -157,7 +160,8 @@ MyTlsData::MyTlsData() //ctor
 int MyTlsData::g_tlsIndex;
 MyTlsData * MyTlsData::g_pTlsDataChain;
 CComAutoCriticalSection MyTlsData::g_tlsCritSect;
-bool volatile MyTlsData::g_IsCreatingTlsData = false;
+bool volatile MyTlsData::g_IsCreatingTlsData;
+int MyTlsData::g_numTlsInstances;
 
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 {
@@ -544,8 +548,11 @@ DWORD WINAPI ThreadRoutine(PVOID param)
 {
 	int threadIndex = (int)param;
 	RecurDownSomeLevels(threadIndex);
-	auto x = HeapAlloc(GetProcessHeap(), 0, 1000);
-	HeapFree(GetProcessHeap(), 0, x);
+	for (int i = 0; i < 1000; i++)
+	{
+		auto x = HeapAlloc(GetProcessHeap(), 0, 1000);
+		HeapFree(GetProcessHeap(), 0, x);
+	}
 	return 0;
 }
 
@@ -554,17 +561,20 @@ void DoLotsOfThreads()
 {
 	DWORD dwThreadIds[NUMTHREADS];
 	HANDLE hThreads[NUMTHREADS];
-	for (int iThread = 0; iThread < NUMTHREADS; iThread++)
+	for (int iter = 0; iter < 100; iter++)
 	{
-		hThreads[iThread] = CreateThread(/*LPSECURITY_ATTRIBUTES=*/NULL,
-			/*dwStackSize=*/ NULL,
-			&ThreadRoutine,
-			/* lpThreadParameter*/(PVOID)iThread,
-			/*dwCreateFlags*/ 0, /// CREATE_SUSPENDED
-			&dwThreadIds[iThread]
-		);
+		for (int iThread = 0; iThread < NUMTHREADS; iThread++)
+		{
+			hThreads[iThread] = CreateThread(/*LPSECURITY_ATTRIBUTES=*/NULL,
+				/*dwStackSize=*/ NULL,
+				&ThreadRoutine,
+				/* lpThreadParameter*/(PVOID)iThread,
+				/*dwCreateFlags*/ 0, /// CREATE_SUSPENDED
+				&dwThreadIds[iThread]
+			);
+		}
+		WaitForMultipleObjects(NUMTHREADS, hThreads, /*bWaitAll*/ true, /*dwMilliseconds*/ INFINITE);
 	}
-	WaitForMultipleObjects(NUMTHREADS, hThreads, /*bWaitAll*/ true, /*dwMilliseconds*/ INFINITE);
 	auto x = 2;
 
 }
