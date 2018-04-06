@@ -48,7 +48,7 @@ void InitCollectStacks()
 	for (int i = 0; i < StackTypeMax; i++)
 	{
 		MySTLAlloc<BYTE> allocator;
-		
+		// create using our allocator using placement new 
 		g_pmapStacksByStackType[i] = new (allocator.allocate(sizeof(mapStacksByStackType))) mapStacksByStackType();
 //		g_pmapStacksByStackType[i] = new mapStacksByStackType();
 	}
@@ -63,8 +63,8 @@ void UninitCollectStacks()
 		if (g_pmapStacksByStackType[i] != nullptr)
 		{
 	//		delete g_pmapStacksByStackType[i];
-			g_pmapStacksByStackType[i]->~mapStacksByStackType();
-			allocator.deallocate((BYTE *)g_pmapStacksByStackType[i], sizeof(mapStacksByStackType));
+			g_pmapStacksByStackType[i]->~mapStacksByStackType(); // invoke dtor
+			allocator.deallocate((BYTE *)g_pmapStacksByStackType[i], sizeof(mapStacksByStackType)); // delete the placement new
 		}
 	}
 //	MessageBoxA(0, "about to Heap destroy", "", 0);

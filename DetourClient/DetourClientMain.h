@@ -1,4 +1,10 @@
 #pragma once
+
+// When creating an unordered_map a vector is created, calling "explicit vector(const _Alloc& _Al) _NOEXCEPT", but it allocates which can throw:
+// https://developercommunity.visualstudio.com/content/problem/140200/c-stl-stdvector-constructor-declared-with-noexcept.html
+#if _DEBUG
+#define _ITERATOR_DEBUG_LEVEL 0
+#endif _DEBUG
 #include <string>
 #include <stack>
 #include <vector>
@@ -37,6 +43,8 @@ extern int g_NumFramesTocapture;
 extern SIZE_T g_HeapAllocSizeMinValue;
 extern HANDLE g_hHeap;
 
+PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size);
+
 struct StlAllocStats
 {
 	LONG _MyStlAllocCurrentTotalAlloc = 0;
@@ -51,6 +59,32 @@ struct StlAllocStats
 	void clear();
 };
 extern StlAllocStats g_MyStlAllocStats;
+
+
+struct MyTlsData
+{
+	static int g_tlsIndex;
+	static MyTlsData * g_pTlsDataChain;
+	static CComAutoCriticalSection g_tlsCritSect;
+	static volatile bool g_IsCreatingTlsData;
+
+	static bool DllMain(ULONG ulReason);
+	static MyTlsData* GetTlsData();
+
+	MyTlsData(); //ctor
+	MyTlsData *_pNextMyTlsData;// pointer to next in linked list so we can iterate/delete at shutdown
+
+#if _DEBUG
+	DWORD _dwThreadId;
+#endif _DEBUG
+
+	bool _fIsInRtlAllocHeap;
+};
+
+
+
+
+
 
 
 

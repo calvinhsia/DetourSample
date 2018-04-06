@@ -1,5 +1,10 @@
 #include "atlsafe.h"
 #include "atlcom.h"
+
+#if _DEBUG
+#define _ITERATOR_DEBUG_LEVEL 0 // https://developercommunity.visualstudio.com/content/problem/140200/c-stl-stdvector-constructor-declared-with-noexcept.html
+#endif _DEBUG
+
 #include <string>
 // from https://blogs.msdn.microsoft.com/calvin_hsia/2014/01/30/create-your-own-clr-profiler/
 
