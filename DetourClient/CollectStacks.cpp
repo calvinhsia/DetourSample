@@ -68,6 +68,7 @@ void UninitCollectStacks()
 		}
 	}
 //	MessageBoxA(0, "about to Heap destroy", "", 0);
+	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc == 0,L"Should be leakless");
 	HeapDestroy(g_hHeap);
 	g_hHeap = 0;
 }
