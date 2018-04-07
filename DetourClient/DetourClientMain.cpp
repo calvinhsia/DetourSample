@@ -21,7 +21,7 @@ DWORD g_dwMainThread;
 
 CComAutoCriticalSection g_csHeap;
 
-#define NUMTHREADS 200
+#define NUMTHREADS 35
 
 void CreateComObject();
 
@@ -42,6 +42,10 @@ ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Li
 
 */
 
+
+typedef unordered_map < DWORD, MyTlsData *, hash<DWORD>, equal_to<DWORD>, MySTLAlloc<pair<DWORD, MyTlsData *>, StlAllocUseProcessHeap>> mapThreadIdToTls;
+mapThreadIdToTls g_mapThreadIdToTls;
+
 //static 
 bool MyTlsData::DllMain(ULONG ulReason)
 {
@@ -57,47 +61,65 @@ bool MyTlsData::DllMain(ULONG ulReason)
 		break;
 
 	case DLL_PROCESS_DETACH:
-		while (g_pTlsDataChain != nullptr)
+		for (auto &item : g_mapThreadIdToTls)
 		{
-			auto pMyTlsData = g_pTlsDataChain;
-			g_pTlsDataChain = g_pTlsDataChain->_pNextMyTlsData;
-			pMyTlsData->~MyTlsData();
-			g_numTlsInstances--;
-			HeapFree(GetProcessHeap(), 0, pMyTlsData); // HeapFree isn't detoured
+			item.second->~MyTlsData();
+			MyFree(StlAllocUseProcessHeap, item.second);
 		}
+		g_mapThreadIdToTls.clear();
+		//while (g_pTlsDataChain != nullptr)
+		//{
+		//	auto pMyTlsData = g_pTlsDataChain;
+		//	g_pTlsDataChain = g_pTlsDataChain->_pNextMyTlsData;
+		//	pMyTlsData->~MyTlsData();
+		//	g_numTlsInstances--;
+		//	HeapFree(GetProcessHeap(), 0, pMyTlsData); // HeapFree isn't detoured
+		//}
 		_ASSERT_EXPR(g_numTlsInstances == 0, L"tls instance leak");
 		TlsFree(g_tlsIndex);
 		break;
 	case DLL_THREAD_DETACH:
-		auto pMyTlsData = (MyTlsData *)TlsGetValue(g_tlsIndex);
-		if (pMyTlsData != nullptr)
+		CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
+		auto res = g_mapThreadIdToTls.find(GetCurrentThreadId());
+
+		if (res == g_mapThreadIdToTls.end())
 		{
-			// we can't wait til end of processs to free this because repeatedly creating/destroying  threads will leak
-			{
-				CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
-				auto pTlsData = g_pTlsDataChain;
-				// find the prior one in the linklist
-				MyTlsData *pPriorData = nullptr;
-				while (pTlsData != pMyTlsData)
-				{
-					pPriorData = pTlsData;
-					pTlsData = pTlsData->_pNextMyTlsData;
-				}
-				_ASSERT_EXPR(pTlsData == pMyTlsData, L"Tls data wrong");
-				if (pPriorData != nullptr)
-				{ // splice out the current one
-					pPriorData->_pNextMyTlsData = pTlsData->_pNextMyTlsData;
-				}
-				else
-				{ // remove from the front of the list
-					g_pTlsDataChain = pTlsData->_pNextMyTlsData;
-				}
-				g_numTlsInstances--;
-			}
-			// can safely delete outside csect
-			pMyTlsData->~MyTlsData();
-			HeapFree(GetProcessHeap(), 0, pMyTlsData); // HeapFree isn't detoured
 		}
+		else
+		{
+			res->second->~MyTlsData();
+			MyFree(StlAllocUseProcessHeap, res->second);
+			g_mapThreadIdToTls.erase(res);
+		}
+		//auto pMyTlsData = (MyTlsData *)TlsGetValue(g_tlsIndex);
+		//if (pMyTlsData != nullptr)
+		//{
+		//	// we can't wait til end of processs to free this because repeatedly creating/destroying  threads will leak
+		//	{
+		//		CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
+		//		auto pTlsData = g_pTlsDataChain;
+		//		// find the prior one in the linklist
+		//		MyTlsData *pPriorData = nullptr;
+		//		while (pTlsData != pMyTlsData)
+		//		{
+		//			pPriorData = pTlsData;
+		//			pTlsData = pTlsData->_pNextMyTlsData;
+		//		}
+		//		_ASSERT_EXPR(pTlsData == pMyTlsData, L"Tls data wrong");
+		//		if (pPriorData != nullptr)
+		//		{ // splice out the current one
+		//			pPriorData->_pNextMyTlsData = pTlsData->_pNextMyTlsData;
+		//		}
+		//		else
+		//		{ // remove from the front of the list
+		//			g_pTlsDataChain = pTlsData->_pNextMyTlsData;
+		//		}
+		//		g_numTlsInstances--;
+		//	}
+		//	// can safely delete outside csect
+		//	pMyTlsData->~MyTlsData();
+		//	HeapFree(GetProcessHeap(), 0, pMyTlsData); // HeapFree isn't detoured
+		//}
 		break;
 	}
 	return true;
@@ -137,13 +159,14 @@ MyTlsData* MyTlsData::GetTlsData()
 				allocator = MyRtlAllocateHeap;
 			}
 			auto pmem = (MyTlsData*)allocator(GetProcessHeap(), 0, sizeof(MyTlsData));
-			g_IsCreatingTlsData = false;
 			pMyTlsData = new (pmem) MyTlsData();
 			TlsSetValue(g_tlsIndex, pMyTlsData);
 			CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
 			g_numTlsInstances++;
-			pMyTlsData->_pNextMyTlsData = g_pTlsDataChain;
-			g_pTlsDataChain = pMyTlsData;
+			auto res = g_mapThreadIdToTls.find(GetCurrentThreadId());
+			_ASSERT_EXPR(res == g_mapThreadIdToTls.end(), L"tls already created?");
+			g_mapThreadIdToTls[GetCurrentThreadId()] = pmem;
+			g_IsCreatingTlsData = false;
 		}
 	}
 	return pMyTlsData;
@@ -151,15 +174,18 @@ MyTlsData* MyTlsData::GetTlsData()
 
 MyTlsData::MyTlsData() //ctor
 {
-	_pNextMyTlsData = nullptr;
 #if _DEBUG
 	_dwThreadId = GetCurrentThreadId();
 #endif _DEBUG
 	_fIsInRtlAllocHeap = false;
 }
 
+MyTlsData::~MyTlsData()
+{
+	g_numTlsInstances--;
+}
+
 int MyTlsData::g_tlsIndex;
-MyTlsData * MyTlsData::g_pTlsDataChain;
 CComAutoCriticalSection MyTlsData::g_tlsCritSect;
 bool volatile MyTlsData::g_IsCreatingTlsData;
 int MyTlsData::g_numTlsInstances;
@@ -170,7 +196,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 	static int recurcount = 0;
 	if (recurcount++ > NUMTHREADS)
 	{
-//		_asm int 3
+		//		_asm int 3
 	}
 #endif _DEBUG
 	bool fDidCollectStack = false;
@@ -181,7 +207,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 		pMem = Real_RtlAllocateHeap(hHeap, dwFlags, size);
 	}
 	else
-	//    if (size > g_HeapAllocSizeMinValue)
+		//    if (size > g_HeapAllocSizeMinValue)
 	{
 
 
@@ -658,7 +684,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 	LONGLONG nStacksCollected = GetNumStacksCollected();
 	sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d g_hHeap =%08x (%08x)",
-		g_MyStlAllocStats._nTotNumHeapAllocs, g_MyStlAllocStats._TotNumBytesHeapAlloc, nStacksCollected, g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, (int)g_hHeap, (int)*(int *)g_hHeap);
+		g_MyStlAllocStats._nTotNumHeapAllocs, g_MyStlAllocStats._TotNumBytesHeapAlloc, nStacksCollected, g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUsePrivateHeap], (int)g_hHeap, (int)*(int *)g_hHeap);
 
 
 	MessageBoxA(0, &buff[0], "Calling the WinApi version of MessageboxA", 0);

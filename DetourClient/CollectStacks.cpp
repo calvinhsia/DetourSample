@@ -62,27 +62,6 @@ void MyFree(StlAllocHeapToUse stlAllocHeapToUse, PVOID pmem)
 
 
 
-
-void StlAllocStats::clear()
-{
-	for (int i = 0; i < StackTypeMax; i++)
-	{
-		if (g_pmapStacksByStackType[i] != nullptr)
-		{
-			g_pmapStacksByStackType[i]->clear();
-		}
-	}
-	_MyStlAllocCurrentTotalAlloc = 0;
-	_NumUniqueStacks = 0;;
-	_fReachedMemLimit = false;
-	_MyStlAllocBytesEverAlloc = 0;
-	_MyStlTotBytesEverFreed = 0;
-	_nTotFramesCollected = 0;
-	_nTotNumHeapAllocs = 0;
-	_TotNumBytesHeapAlloc = 0;
-	_fReachedMemLimit = false;
-}
-
 void InitCollectStacks()
 {
 	g_hHeap = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ g_MyStlAllocStats._MyStlAllocLimit);
@@ -109,7 +88,7 @@ void UninitCollectStacks()
 		}
 	}
 //	MessageBoxA(0, "about to Heap destroy", "", 0);
-	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc == 0,L"Should be leakless");
+	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUsePrivateHeap] == 0,L"Should be leakless");
 	HeapDestroy(g_hHeap);
 	g_hHeap = 0;
 }
@@ -196,7 +175,7 @@ LONGLONG GetNumStacksCollected()
 			}
 		}
 	}
-	g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc = save_g_MyStlAllocTotalAlloc;
+	//g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc = save_g_MyStlAllocTotalAlloc;
 	/*
 	Sample output from OutputWindow:
 	sizeAlloc=72 cnt=25
@@ -269,7 +248,7 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 	}
 	if (fDidCollectStack && !g_MyStlAllocStats._fReachedMemLimit)
 	{
-		if (g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc >= g_MyStlAllocStats._MyStlAllocLimit)
+		if (g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUsePrivateHeap] >= g_MyStlAllocStats._MyStlAllocLimit)
 		{
 			g_MyStlAllocStats._fReachedMemLimit = true;
 		}

@@ -13,11 +13,19 @@
 #include <functional>
 #include <algorithm>
 
+// the different types of callstacks we collect
 typedef enum {
 	StackTypeHeapAlloc = 0,
 	StackTypeRpc = 1,
 	StackTypeMax = 2
 } StackType;
+
+// the different types of heap allocators we use
+typedef enum {
+	StlAllocUseProcessHeap, // limited by process memory space
+	StlAllocUsePrivateHeap,  // limited to e.g. 64k
+	StlAllocMax
+} StlAllocHeapToUse;
 
 struct HeapSizeData
 {
@@ -47,16 +55,17 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size);
 
 struct StlAllocStats
 {
-	LONG _MyStlAllocCurrentTotalAlloc = 0;
+	LONG _MyStlAllocCurrentTotalAlloc[StlAllocMax];
+	long _MyStlAllocBytesEverAlloc[StlAllocMax];
+	long _MyStlTotBytesEverFreed[StlAllocMax];
+
+	int _nTotNumHeapAllocs;// total # of allocations by AllocHeap for collected stacks
+	LONGLONG _TotNumBytesHeapAlloc; // total # bytes alloc'd by AllocHeap for collected stacks
+
 	LONG _MyStlAllocLimit = 65536 * 1;
 	LONG _NumUniqueStacks = 0;
 	bool _fReachedMemLimit = false;
-	long _MyStlAllocBytesEverAlloc = 0;
-	long _MyStlTotBytesEverFreed = 0;
 	long _nTotFramesCollected = 0;
-	int _nTotNumHeapAllocs;// total # of allocations by AllocHeap
-	LONGLONG _TotNumBytesHeapAlloc; // total # bytes alloc'd by AllocHeap
-	void clear();
 };
 extern StlAllocStats g_MyStlAllocStats;
 
@@ -64,7 +73,6 @@ extern StlAllocStats g_MyStlAllocStats;
 struct MyTlsData
 {
 	static int g_tlsIndex;
-	static MyTlsData * g_pTlsDataChain;
 	static CComAutoCriticalSection g_tlsCritSect;
 	static volatile bool g_IsCreatingTlsData;
 	static int g_numTlsInstances;
@@ -72,7 +80,7 @@ struct MyTlsData
 	static MyTlsData* GetTlsData();
 
 	MyTlsData(); //ctor
-	MyTlsData *_pNextMyTlsData;// pointer to next in linked list so we can iterate/delete at shutdown
+	~MyTlsData(); //dtor
 
 #if _DEBUG
 	DWORD _dwThreadId;
@@ -81,11 +89,6 @@ struct MyTlsData
 	bool _fIsInRtlAllocHeap;
 };
 
-
-typedef enum {
-	StlAllocUseProcessHeap, // limited by process memory space
-	StlAllocUsePrivateHeap  // limited to e.g. 64k
-} StlAllocHeapToUse;
 
 
 
@@ -140,15 +143,15 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 				throw std::bad_alloc();
 			}
 		}
-		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, nSize);
-		g_MyStlAllocStats._MyStlAllocBytesEverAlloc += nSize;
+		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], nSize);
+		g_MyStlAllocStats._MyStlAllocBytesEverAlloc[stlAllocHeapToUse] += nSize;
 		return static_cast<T*>(pv);
 	}
 	void deallocate(T* const p, size_t n) const
 	{
 		unsigned nSize = (UINT)n * sizeof(T);
-		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, -((int)nSize));
-		g_MyStlAllocStats._MyStlTotBytesEverFreed += nSize;
+		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], -((int)nSize));
+		g_MyStlAllocStats._MyStlTotBytesEverFreed[stlAllocHeapToUse] += nSize;
 
 		MyFree(stlAllocHeapToUse, p);
 		//// upon ininitialize, g_hHeap is null, ebcause the heap has already been deleted, deleting all our objects
