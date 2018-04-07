@@ -22,6 +22,47 @@ mapStacksByStackType *g_pmapStacksByStackType[StackTypeMax];
 
 StlAllocStats g_MyStlAllocStats;
 
+
+
+PVOID MyAllocate(StlAllocHeapToUse stlAllocHeapToUse, SIZE_T size)
+{
+	PVOID pmem;
+	HANDLE hHeap;
+	switch (stlAllocHeapToUse)
+	{
+	case StlAllocUseProcessHeap:
+		hHeap = GetProcessHeap();
+		break;
+	case StlAllocUsePrivateHeap:
+		hHeap = g_hHeap;
+		break;
+	default:
+		break;
+	}
+	pmem = HeapAlloc(hHeap, 0, size);
+	return pmem;
+}
+
+void MyFree(StlAllocHeapToUse stlAllocHeapToUse, PVOID pmem)
+{
+	HANDLE hHeap;
+	switch (stlAllocHeapToUse)
+	{
+	case StlAllocUseProcessHeap:
+		hHeap = GetProcessHeap();
+		break;
+	case StlAllocUsePrivateHeap:
+		hHeap = g_hHeap;
+		break;
+	default:
+		break;
+	}
+	HeapFree(hHeap, 0, pmem);
+}
+
+
+
+
 void StlAllocStats::clear()
 {
 	for (int i = 0; i < StackTypeMax; i++)
@@ -47,7 +88,7 @@ void InitCollectStacks()
 	g_hHeap = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ g_MyStlAllocStats._MyStlAllocLimit);
 	for (int i = 0; i < StackTypeMax; i++)
 	{
-		MySTLAlloc<BYTE> allocator;
+		MySTLAlloc<BYTE, StlAllocUsePrivateHeap> allocator;
 		// create using our allocator using placement new 
 		g_pmapStacksByStackType[i] = new (allocator.allocate(sizeof(mapStacksByStackType))) mapStacksByStackType();
 //		g_pmapStacksByStackType[i] = new mapStacksByStackType();
@@ -59,7 +100,7 @@ void UninitCollectStacks()
 {
 	for (int i = 0; i < StackTypeMax; i++)
 	{
-		MySTLAlloc<BYTE> allocator;
+		MySTLAlloc<BYTE, StlAllocUsePrivateHeap> allocator;
 		if (g_pmapStacksByStackType[i] != nullptr)
 		{
 	//		delete g_pmapStacksByStackType[i];

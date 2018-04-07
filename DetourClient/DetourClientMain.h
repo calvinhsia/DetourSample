@@ -82,14 +82,19 @@ struct MyTlsData
 };
 
 
+typedef enum {
+	StlAllocUseProcessHeap, // limited by process memory space
+	StlAllocUsePrivateHeap  // limited to e.g. 64k
+} StlAllocHeapToUse;
 
 
 
+PVOID MyAllocate(StlAllocHeapToUse stlAllocHeapToUse, SIZE_T size);
+
+void MyFree(StlAllocHeapToUse stlAllocHeapToUse, PVOID pmem);
 
 
-
-
-template <class T>
+template <class T, StlAllocHeapToUse stlAllocHeapToUse>
 struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use-a-custom-allocator-for-your-stl-container/
 {
 	typedef T value_type;
@@ -97,17 +102,23 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 	{
 	}
 	// A converting copy constructor:
-	template<class U> MySTLAlloc(const MySTLAlloc<U>& other)
+	template<class U, StlAllocHeapToUse stlAllocHeapToUse> MySTLAlloc(const MySTLAlloc<U, stlAllocHeapToUse>& other)
 	{
 	}
-	template<class U> bool operator==(const MySTLAlloc<U>&) const
+	template<class U, StlAllocHeapToUse stlAllocHeapToUse> bool operator==(const MySTLAlloc<U, stlAllocHeapToUse>&) const
 	{
 		return true;
 	}
-	template<class U> bool operator!=(const MySTLAlloc<U>&) const
+	template<class U, StlAllocHeapToUse stlAllocHeapToUse> bool operator!=(const MySTLAlloc<U, stlAllocHeapToUse>&) const
 	{
 		return false;
 	}
+	template <class U>
+	struct rebind
+	{
+		typedef MySTLAlloc<U, stlAllocHeapToUse> other;
+	};
+
 	T* allocate(const size_t n) const
 	{
 		if (n == 0)
@@ -119,12 +130,15 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			throw std::bad_array_new_length();
 		}
 		unsigned nSize = (UINT)n * sizeof(T);
-		void *pv;
-		pv = HeapAlloc(g_hHeap, 0, nSize);
+		void *pv = MyAllocate(stlAllocHeapToUse, nSize);
+//		pv = HeapAlloc(g_hHeap, 0, nSize);
 		if (pv == 0)
 		{
-			g_MyStlAllocStats._fReachedMemLimit = true;
-			throw std::bad_alloc();
+			if (stlAllocHeapToUse == StlAllocUsePrivateHeap)
+			{
+				g_MyStlAllocStats._fReachedMemLimit = true;
+				throw std::bad_alloc();
+			}
 		}
 		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, nSize);
 		g_MyStlAllocStats._MyStlAllocBytesEverAlloc += nSize;
@@ -135,11 +149,13 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 		unsigned nSize = (UINT)n * sizeof(T);
 		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc, -((int)nSize));
 		g_MyStlAllocStats._MyStlTotBytesEverFreed += nSize;
-		// upon ininitialize, g_hHeap is null, ebcause the heap has already been deleted, deleting all our objects
-		if (g_hHeap != nullptr)
-		{
-			HeapFree(g_hHeap, 0, p);
-		}
+
+		MyFree(stlAllocHeapToUse, p);
+		//// upon ininitialize, g_hHeap is null, ebcause the heap has already been deleted, deleting all our objects
+		//if (g_hHeap != nullptr)
+		//{
+		//	HeapFree(g_hHeap, 0, p);
+		//}
 	}
 	~MySTLAlloc() {
 
@@ -167,7 +183,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 
 
 typedef std::vector<PVOID
-	, MySTLAlloc<PVOID>
+	, MySTLAlloc<PVOID, StlAllocUsePrivateHeap>
 > vecFrames;
 
 // Collects the callstack and calculates the stack hash
@@ -211,7 +227,7 @@ typedef std::unordered_map<UINT, CallStack // can't use unique_ptr because can't
 	,
 	std::hash<UINT>,
 	std::equal_to<UINT>,
-	MySTLAlloc<std::pair<const UINT, CallStack> >
+	MySTLAlloc<std::pair<const UINT, CallStack>, StlAllocUsePrivateHeap >
 > mapStackHashToStack; // stackhash=>CallStack
 
 					   // represents the stacks for a particular stack type : e.g. the 100k allocations
@@ -281,7 +297,7 @@ typedef std::unordered_map<mapKey, StacksForStackType
 	,
 	std::hash<mapKey>,
 	std::equal_to<mapKey>,
-	MySTLAlloc<std::pair<const mapKey, StacksForStackType>>
+	MySTLAlloc<std::pair<const mapKey, StacksForStackType>, StlAllocUsePrivateHeap>
 > mapStacksByStackType;
 
 // map the Size of an alloc to all the stacks that allocated that size.
@@ -303,4 +319,5 @@ void DoSomeManagedCode();
 void DoSomeThreadingModelExperiments();
 
 LONGLONG GetNumStacksCollected();
+
 
