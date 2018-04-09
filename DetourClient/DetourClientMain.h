@@ -78,12 +78,15 @@ struct MyTlsData
 	static int g_numTlsInstances;
 	static bool DllMain(ULONG ulReason);
 	static MyTlsData* GetTlsData();
-
+#if _DEBUG
+	static int _tlsSerialNo;
+#endif _DEBUG
 	MyTlsData(); //ctor
 	~MyTlsData(); //dtor
 
 #if _DEBUG
 	DWORD _dwThreadId;
+	int _nSerialNo;
 #endif _DEBUG
 
 	bool _fIsInRtlAllocHeap;
@@ -144,14 +147,14 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			}
 		}
 		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], nSize);
-		g_MyStlAllocStats._MyStlAllocBytesEverAlloc[stlAllocHeapToUse] += nSize;
+		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocBytesEverAlloc[stlAllocHeapToUse], nSize);
 		return static_cast<T*>(pv);
 	}
 	void deallocate(T* const p, size_t n) const
 	{
 		unsigned nSize = (UINT)n * sizeof(T);
 		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], -((int)nSize));
-		g_MyStlAllocStats._MyStlTotBytesEverFreed[stlAllocHeapToUse] += nSize;
+		InterlockedAdd(&g_MyStlAllocStats._MyStlTotBytesEverFreed[stlAllocHeapToUse], +(int) nSize);
 
 		MyFree(stlAllocHeapToUse, p);
 		//// upon ininitialize, g_hHeap is null, ebcause the heap has already been deleted, deleting all our objects

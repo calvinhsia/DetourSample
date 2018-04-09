@@ -61,10 +61,12 @@ bool MyTlsData::DllMain(ULONG ulReason)
 		break;
 
 	case DLL_PROCESS_DETACH:
+	{
+		MySTLAlloc<BYTE, StlAllocUseProcessHeap> alloc;
 		for (auto &item : g_mapThreadIdToTls)
 		{
 			item.second->~MyTlsData();
-			MyFree(StlAllocUseProcessHeap, item.second);
+			alloc.deallocate((BYTE *)item.second, sizeof(MyTlsData));
 		}
 		g_mapThreadIdToTls.clear();
 		//while (g_pTlsDataChain != nullptr)
@@ -77,7 +79,8 @@ bool MyTlsData::DllMain(ULONG ulReason)
 		//}
 		_ASSERT_EXPR(g_numTlsInstances == 0, L"tls instance leak");
 		TlsFree(g_tlsIndex);
-		break;
+	}
+	break;
 	case DLL_THREAD_DETACH:
 		CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
 		auto res = g_mapThreadIdToTls.find(GetCurrentThreadId());
@@ -88,7 +91,8 @@ bool MyTlsData::DllMain(ULONG ulReason)
 		else
 		{
 			res->second->~MyTlsData();
-			MyFree(StlAllocUseProcessHeap, res->second);
+			MySTLAlloc<BYTE, StlAllocUseProcessHeap> alloc;
+			alloc.deallocate((BYTE *)res->second, sizeof(MyTlsData));
 			g_mapThreadIdToTls.erase(res);
 		}
 		//auto pMyTlsData = (MyTlsData *)TlsGetValue(g_tlsIndex);
@@ -164,7 +168,10 @@ MyTlsData* MyTlsData::GetTlsData()
 			CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
 			g_numTlsInstances++;
 			auto res = g_mapThreadIdToTls.find(GetCurrentThreadId());
-			_ASSERT_EXPR(res == g_mapThreadIdToTls.end(), L"tls already created?");
+			if (res != g_mapThreadIdToTls.end())
+			{
+				_ASSERT_EXPR(false, L"tls already created?");
+			}
 			g_mapThreadIdToTls[GetCurrentThreadId()] = pmem;
 			g_IsCreatingTlsData = false;
 		}
@@ -176,6 +183,7 @@ MyTlsData::MyTlsData() //ctor
 {
 #if _DEBUG
 	_dwThreadId = GetCurrentThreadId();
+	_nSerialNo = _tlsSerialNo++;
 #endif _DEBUG
 	_fIsInRtlAllocHeap = false;
 }
@@ -189,6 +197,9 @@ int MyTlsData::g_tlsIndex;
 CComAutoCriticalSection MyTlsData::g_tlsCritSect;
 bool volatile MyTlsData::g_IsCreatingTlsData;
 int MyTlsData::g_numTlsInstances;
+#if _DEBUG
+int MyTlsData::_tlsSerialNo;
+#endif _DEBUG
 
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 {

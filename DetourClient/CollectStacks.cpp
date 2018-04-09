@@ -39,7 +39,14 @@ PVOID MyAllocate(StlAllocHeapToUse stlAllocHeapToUse, SIZE_T size)
 	default:
 		break;
 	}
-	pmem = HeapAlloc(hHeap, 0, size);
+	if (Real_RtlAllocateHeap != nullptr)
+	{
+		pmem = Real_RtlAllocateHeap(hHeap, 0, size);
+	}
+	else
+	{
+		pmem = HeapAlloc(hHeap, 0, size);
+	}
 	return pmem;
 }
 
