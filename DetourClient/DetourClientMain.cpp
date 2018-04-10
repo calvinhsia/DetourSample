@@ -684,7 +684,8 @@ CLINKAGE void EXPORT StartVisualStudio()
 		typedef unordered_map < DWORD, shared_ptr<MyTlsData>,
 			hash<DWORD>, equal_to<DWORD>, MySTLAlloc<pair<DWORD, shared_ptr<MyTlsData>>, StlAllocUseTlsHeap>> mapThreadIdTls;
 		mapThreadIdTls mymap;
-		auto alloc = mymap.get_allocator();
+
+		mapThreadIdTls::allocator_type alloc;
 		{
 			shared_ptr<MyTlsData> pp = allocate_shared<MyTlsData, MySTLAlloc<MyTlsData, StlAllocUseTlsHeap>>(alloc);
 		}
