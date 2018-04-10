@@ -354,14 +354,18 @@ namespace CSLife
 
             Controls.Add(m_box);
             var tmr = new System.Windows.Forms.Timer();
+            var nStart = 0;
             tmr.Tick += async (o, e) =>
               {
                   var ptr = Marshal.AllocHGlobal(1000); // heapalloc
                   Marshal.FreeHGlobal(ptr);
-
+                  if (nStart++ == 500)
+                  {
+                      this.Close();
+                  }
                   await DoSomething();
               };
-            tmr.Interval = (int)TimeSpan.FromMilliseconds(100).TotalMilliseconds;
+            tmr.Interval = (int)TimeSpan.FromMilliseconds(10).TotalMilliseconds;
             tmr.Enabled = true;
 
 

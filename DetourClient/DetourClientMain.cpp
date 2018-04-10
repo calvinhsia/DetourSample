@@ -43,7 +43,61 @@ ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Li
 */
 
 
-typedef unordered_map < DWORD, MyTlsData *, hash<DWORD>, equal_to<DWORD>, MySTLAlloc<pair<DWORD, MyTlsData *>, StlAllocUseProcessHeap>> mapThreadIdToTls;
+PVOID MyAllocate(StlAllocHeapToUse stlAllocHeapToUse, SIZE_T size)
+{
+	PVOID pmem;
+	HANDLE hHeap;
+	switch (stlAllocHeapToUse)
+	{
+	case StlAllocUseProcessHeap:
+		hHeap = GetProcessHeap();
+		break;
+	case StlAllocUseCallStackHeap:
+		hHeap = g_hHeapCallStacks;
+		break;
+	case StlAllocUseTlsHeap:
+		hHeap = g_hHeapTls;
+		break;
+	default:
+		break;
+	}
+	if (Real_RtlAllocateHeap != nullptr)
+	{
+		pmem = Real_RtlAllocateHeap(hHeap, 0, size);
+	}
+	else
+	{
+		pmem = HeapAlloc(hHeap, 0, size);
+	}
+	return pmem;
+}
+
+void MyFree(StlAllocHeapToUse stlAllocHeapToUse, PVOID pmem)
+{
+	HANDLE hHeap;
+	switch (stlAllocHeapToUse)
+	{
+	case StlAllocUseProcessHeap:
+		hHeap = GetProcessHeap();
+		break;
+	case StlAllocUseCallStackHeap:
+		hHeap = g_hHeapCallStacks;
+		break;
+	case StlAllocUseTlsHeap:
+		hHeap = g_hHeapTls;
+		break;
+	default:
+		break;
+	}
+	HeapFree(hHeap, 0, pmem);
+}
+
+
+
+HANDLE g_hHeapTls = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 0);
+
+typedef unordered_map < DWORD, MyTlsData *, hash<DWORD>, equal_to<DWORD>, MySTLAlloc<pair<DWORD, MyTlsData *>, StlAllocUseTlsHeap>> mapThreadIdToTls;
+// must be ptr to MyTlsData, because that's what's put in TlsSetValue
 mapThreadIdToTls g_mapThreadIdToTls;
 
 //static 
@@ -62,11 +116,12 @@ bool MyTlsData::DllMain(ULONG ulReason)
 
 	case DLL_PROCESS_DETACH:
 	{
-		MySTLAlloc<BYTE, StlAllocUseProcessHeap> alloc;
+		decltype(g_mapThreadIdToTls.get_allocator())::rebind<BYTE>::other alloc;
+
 		for (auto &item : g_mapThreadIdToTls)
 		{
 			item.second->~MyTlsData();
-			alloc.deallocate((BYTE *)item.second, sizeof(MyTlsData));
+			alloc.deallocate((BYTE *)item.second, sizeof(*item.second));
 		}
 		g_mapThreadIdToTls.clear();
 		//while (g_pTlsDataChain != nullptr)
@@ -91,8 +146,8 @@ bool MyTlsData::DllMain(ULONG ulReason)
 		else
 		{
 			res->second->~MyTlsData();
-			MySTLAlloc<BYTE, StlAllocUseProcessHeap> alloc;
-			alloc.deallocate((BYTE *)res->second, sizeof(MyTlsData));
+			decltype(g_mapThreadIdToTls.get_allocator())::rebind<BYTE>::other alloc;
+			alloc.deallocate((BYTE *)res->second, sizeof(*res->second));
 			g_mapThreadIdToTls.erase(res);
 		}
 		//auto pMyTlsData = (MyTlsData *)TlsGetValue(g_tlsIndex);
@@ -138,7 +193,7 @@ MyTlsData* MyTlsData::GetTlsData()
 		if (!g_IsCreatingTlsData)
 		{/*
 		 Because new thread creation can grow TLS structures, which call heapalloc internally, and those
-		 heapalloc calls can internally gro internal heap blocks by calling heapalloc, we cannot
+		 heapalloc calls can internally grow internal heap blocks by calling heapalloc, we cannot
 		 recur and we cannot create our TLS data in the same heap at this time.
 		 thus we could potentially miss an allocation detour because detour prevention is done on all threads (g_IsCreatingTlsData is a static)
 		 We would miss an allocation only on a new thread (that doesn't have a MyTlsData yet) if another thread is currently creating a MyTlsData
@@ -162,17 +217,21 @@ MyTlsData* MyTlsData::GetTlsData()
 			{
 				allocator = MyRtlAllocateHeap;
 			}
-			auto pmem = (MyTlsData*)allocator(GetProcessHeap(), 0, sizeof(MyTlsData));
+			auto pmem = (MyTlsData*)allocator(g_hHeapTls, 0, sizeof(MyTlsData));
 			pMyTlsData = new (pmem) MyTlsData();
 			TlsSetValue(g_tlsIndex, pMyTlsData);
 			CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
-			g_numTlsInstances++;
 			auto res = g_mapThreadIdToTls.find(GetCurrentThreadId());
 			if (res != g_mapThreadIdToTls.end())
 			{
 				_ASSERT_EXPR(false, L"tls already created?");
 			}
 			g_mapThreadIdToTls[GetCurrentThreadId()] = pmem;
+			res = g_mapThreadIdToTls.find(GetCurrentThreadId());
+			g_mapThreadIdToTls.erase(res);
+			g_mapThreadIdToTls[GetCurrentThreadId()] = pmem;
+
+
 			g_IsCreatingTlsData = false;
 		}
 	}
@@ -186,17 +245,19 @@ MyTlsData::MyTlsData() //ctor
 	_nSerialNo = _tlsSerialNo++;
 #endif _DEBUG
 	_fIsInRtlAllocHeap = false;
+	InterlockedIncrement(&g_numTlsInstances);
 }
 
 MyTlsData::~MyTlsData()
 {
-	g_numTlsInstances--;
+	InterlockedDecrement(&g_numTlsInstances);
 }
 
 int MyTlsData::g_tlsIndex;
 CComAutoCriticalSection MyTlsData::g_tlsCritSect;
 bool volatile MyTlsData::g_IsCreatingTlsData;
-int MyTlsData::g_numTlsInstances;
+long MyTlsData::g_numTlsInstances;
+
 #if _DEBUG
 int MyTlsData::_tlsSerialNo;
 #endif _DEBUG
@@ -604,7 +665,7 @@ void DoLotsOfThreads()
 		for (int iThread = 0; iThread < NUMTHREADS; iThread++)
 		{
 			hThreads[iThread] = CreateThread(/*LPSECURITY_ATTRIBUTES=*/NULL,
-				/*dwStackSize=*/ NULL,
+				/*dwStackSize=*/ 1024*256,
 				&ThreadRoutine,
 				/* lpThreadParameter*/(PVOID)iThread,
 				/*dwCreateFlags*/ 0, /// CREATE_SUSPENDED
@@ -619,6 +680,26 @@ void DoLotsOfThreads()
 
 CLINKAGE void EXPORT StartVisualStudio()
 {
+	{
+		mapThreadIdToTls mymap;// = new mapThreadIdToTls();
+		decltype(mymap.get_allocator())::rebind<BYTE>::other alloc;
+
+		auto p = new (alloc.allocate(sizeof(MyTlsData))) MyTlsData();
+		mymap[(DWORD)1] = (MyTlsData *)p;
+		auto q = new (alloc.allocate(sizeof(MyTlsData))) MyTlsData();
+		mymap[(DWORD)2] = (MyTlsData *)q;
+		auto res = mymap.find(1);
+		res->second->~MyTlsData();
+		alloc.deallocate((BYTE *)res->second, sizeof(*res->second));
+		mymap.erase(res);
+		for (auto &x : mymap)
+		{
+			x.second->~MyTlsData();
+			alloc.deallocate((BYTE *)x.second, sizeof(*x.second));
+		}
+		mymap.clear();
+	}
+
 	g_dwMainThread = GetCurrentThreadId();
 
 	splitStr(g_strHeapAllocSizesToCollect, ',', [](wstring valPair)
@@ -695,7 +776,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 	LONGLONG nStacksCollected = GetNumStacksCollected();
 	sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d g_hHeap =%08x (%08x)",
-		g_MyStlAllocStats._nTotNumHeapAllocs, g_MyStlAllocStats._TotNumBytesHeapAlloc, nStacksCollected, g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUsePrivateHeap], (int)g_hHeap, (int)*(int *)g_hHeap);
+		g_MyStlAllocStats._nTotNumHeapAllocs, g_MyStlAllocStats._TotNumBytesHeapAlloc, nStacksCollected, g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap], (int)g_hHeapCallStacks, (int)*(int *)g_hHeapCallStacks);
 
 
 	MessageBoxA(0, &buff[0], "Calling the WinApi version of MessageboxA", 0);

@@ -23,7 +23,8 @@ typedef enum {
 // the different types of heap allocators we use
 typedef enum {
 	StlAllocUseProcessHeap, // limited by process memory space
-	StlAllocUsePrivateHeap,  // limited to e.g. 64k
+	StlAllocUseCallStackHeap,  // limited to e.g. 64k
+	StlAllocUseTlsHeap,		// only for TLS structures
 	StlAllocMax
 } StlAllocHeapToUse;
 
@@ -49,7 +50,8 @@ extern WCHAR * g_strHeapAllocSizesToCollect;
 extern WCHAR * g_strHeapAllocThresholds;
 extern int g_NumFramesTocapture;
 extern SIZE_T g_HeapAllocSizeMinValue;
-extern HANDLE g_hHeap;
+extern HANDLE g_hHeapCallStacks;
+extern HANDLE g_hHeapTls;
 
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size);
 
@@ -75,7 +77,7 @@ struct MyTlsData
 	static int g_tlsIndex;
 	static CComAutoCriticalSection g_tlsCritSect;
 	static volatile bool g_IsCreatingTlsData;
-	static int g_numTlsInstances;
+	static LONG g_numTlsInstances;
 	static bool DllMain(ULONG ulReason);
 	static MyTlsData* GetTlsData();
 #if _DEBUG
@@ -140,7 +142,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 //		pv = HeapAlloc(g_hHeap, 0, nSize);
 		if (pv == 0)
 		{
-			if (stlAllocHeapToUse == StlAllocUsePrivateHeap)
+			if (stlAllocHeapToUse == StlAllocUseCallStackHeap)
 			{
 				g_MyStlAllocStats._fReachedMemLimit = true;
 				throw std::bad_alloc();
@@ -166,6 +168,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 	~MySTLAlloc() {
 
 	}
+
 };
 
 //template <class T>
@@ -189,7 +192,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 
 
 typedef std::vector<PVOID
-	, MySTLAlloc<PVOID, StlAllocUsePrivateHeap>
+	, MySTLAlloc<PVOID, StlAllocUseCallStackHeap>
 > vecFrames;
 
 // Collects the callstack and calculates the stack hash
@@ -233,7 +236,7 @@ typedef std::unordered_map<UINT, CallStack // can't use unique_ptr because can't
 	,
 	std::hash<UINT>,
 	std::equal_to<UINT>,
-	MySTLAlloc<std::pair<const UINT, CallStack>, StlAllocUsePrivateHeap >
+	MySTLAlloc<std::pair<const UINT, CallStack>, StlAllocUseCallStackHeap >
 > mapStackHashToStack; // stackhash=>CallStack
 
 					   // represents the stacks for a particular stack type : e.g. the 100k allocations
@@ -303,7 +306,7 @@ typedef std::unordered_map<mapKey, StacksForStackType
 	,
 	std::hash<mapKey>,
 	std::equal_to<mapKey>,
-	MySTLAlloc<std::pair<const mapKey, StacksForStackType>, StlAllocUsePrivateHeap>
+	MySTLAlloc<std::pair<const mapKey, StacksForStackType>, StlAllocUseCallStackHeap>
 > mapStacksByStackType;
 
 // map the Size of an alloc to all the stacks that allocated that size.

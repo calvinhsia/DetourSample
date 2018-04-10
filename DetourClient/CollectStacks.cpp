@@ -10,7 +10,8 @@ WCHAR * g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
 int g_NumFramesTocapture = 20;
 SIZE_T g_HeapAllocSizeMinValue = 0;// 1048576;
 
-HANDLE g_hHeap;
+HANDLE g_hHeapCallStacks;
+
 
 vector<HeapSizeData> g_heapAllocSizes;
 
@@ -24,57 +25,12 @@ StlAllocStats g_MyStlAllocStats;
 
 
 
-PVOID MyAllocate(StlAllocHeapToUse stlAllocHeapToUse, SIZE_T size)
-{
-	PVOID pmem;
-	HANDLE hHeap;
-	switch (stlAllocHeapToUse)
-	{
-	case StlAllocUseProcessHeap:
-		hHeap = GetProcessHeap();
-		break;
-	case StlAllocUsePrivateHeap:
-		hHeap = g_hHeap;
-		break;
-	default:
-		break;
-	}
-	if (Real_RtlAllocateHeap != nullptr)
-	{
-		pmem = Real_RtlAllocateHeap(hHeap, 0, size);
-	}
-	else
-	{
-		pmem = HeapAlloc(hHeap, 0, size);
-	}
-	return pmem;
-}
-
-void MyFree(StlAllocHeapToUse stlAllocHeapToUse, PVOID pmem)
-{
-	HANDLE hHeap;
-	switch (stlAllocHeapToUse)
-	{
-	case StlAllocUseProcessHeap:
-		hHeap = GetProcessHeap();
-		break;
-	case StlAllocUsePrivateHeap:
-		hHeap = g_hHeap;
-		break;
-	default:
-		break;
-	}
-	HeapFree(hHeap, 0, pmem);
-}
-
-
-
 void InitCollectStacks()
 {
-	g_hHeap = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ g_MyStlAllocStats._MyStlAllocLimit);
+	g_hHeapCallStacks = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ g_MyStlAllocStats._MyStlAllocLimit);
 	for (int i = 0; i < StackTypeMax; i++)
 	{
-		MySTLAlloc<BYTE, StlAllocUsePrivateHeap> allocator;
+		MySTLAlloc<BYTE, StlAllocUseCallStackHeap> allocator;
 		// create using our allocator using placement new 
 		g_pmapStacksByStackType[i] = new (allocator.allocate(sizeof(mapStacksByStackType))) mapStacksByStackType();
 //		g_pmapStacksByStackType[i] = new mapStacksByStackType();
@@ -86,7 +42,7 @@ void UninitCollectStacks()
 {
 	for (int i = 0; i < StackTypeMax; i++)
 	{
-		MySTLAlloc<BYTE, StlAllocUsePrivateHeap> allocator;
+		MySTLAlloc<BYTE, StlAllocUseCallStackHeap> allocator;
 		if (g_pmapStacksByStackType[i] != nullptr)
 		{
 	//		delete g_pmapStacksByStackType[i];
@@ -95,9 +51,9 @@ void UninitCollectStacks()
 		}
 	}
 //	MessageBoxA(0, "about to Heap destroy", "", 0);
-	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUsePrivateHeap] == 0,L"Should be leakless");
-	HeapDestroy(g_hHeap);
-	g_hHeap = 0;
+	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] == 0,L"Should be leakless");
+	HeapDestroy(g_hHeapCallStacks);
+	g_hHeapCallStacks = 0;
 }
 
 
@@ -255,7 +211,7 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 	}
 	if (fDidCollectStack && !g_MyStlAllocStats._fReachedMemLimit)
 	{
-		if (g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUsePrivateHeap] >= g_MyStlAllocStats._MyStlAllocLimit)
+		if (g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] >= g_MyStlAllocStats._MyStlAllocLimit)
 		{
 			g_MyStlAllocStats._fReachedMemLimit = true;
 		}
