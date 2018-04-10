@@ -681,6 +681,16 @@ void DoLotsOfThreads()
 CLINKAGE void EXPORT StartVisualStudio()
 {
 	{
+		typedef unordered_map < DWORD, shared_ptr<MyTlsData>,
+			hash<DWORD>, equal_to<DWORD>, MySTLAlloc<pair<DWORD, shared_ptr<MyTlsData>>, StlAllocUseTlsHeap>> mapThreadIdTls;
+		mapThreadIdTls mymap;
+		auto alloc = mymap.get_allocator();
+		{
+			shared_ptr<MyTlsData> pp = allocate_shared<MyTlsData, MySTLAlloc<MyTlsData, StlAllocUseTlsHeap>>(alloc);
+		}
+		mymap[1]= allocate_shared<MyTlsData, MySTLAlloc<MyTlsData, StlAllocUseTlsHeap>>(alloc);
+	}
+	{
 		mapThreadIdToTls mymap;// = new mapThreadIdToTls();
 		decltype(mymap.get_allocator())::rebind<BYTE>::other alloc;
 
@@ -766,7 +776,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 	CreateComObject();
 
-	DoSomeManagedCode();
+//	DoSomeManagedCode();
 
 
 	// now undo detour redirection, so detouring to stubs:
