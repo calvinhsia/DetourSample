@@ -10,9 +10,6 @@ WCHAR * g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
 int g_NumFramesTocapture = 20;
 SIZE_T g_HeapAllocSizeMinValue = 0;// 1048576;
 
-HANDLE g_hHeapCallStacks;
-
-
 vector<HeapSizeData> g_heapAllocSizes;
 
 extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
@@ -27,7 +24,6 @@ StlAllocStats g_MyStlAllocStats;
 
 void InitCollectStacks()
 {
-	g_hHeapCallStacks = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ g_MyStlAllocStats._MyStlAllocLimit);
 	// create an allocator type for BYTE from the same allocator at the map
 	using myByteAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<BYTE>;
 	// create an instance of the allocator type
@@ -61,8 +57,6 @@ void UninitCollectStacks()
 	}
 //	MessageBoxA(0, "about to Heap destroy", "", 0);
 	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] == 0,L"Should be leakless");
-	HeapDestroy(g_hHeapCallStacks);
-	g_hHeapCallStacks = 0;
 }
 
 

@@ -77,17 +77,8 @@ bool MyTlsData::DllMain(ULONG ulReason)
 			allocatorByte.deallocate((BYTE *)item.second, sizeof(*item.second));
 		}
 		g_mapThreadIdToTls.clear();
-		//while (g_pTlsDataChain != nullptr)
-		//{
-		//	auto pMyTlsData = g_pTlsDataChain;
-		//	g_pTlsDataChain = g_pTlsDataChain->_pNextMyTlsData;
-		//	pMyTlsData->~MyTlsData();
-		//	g_numTlsInstances--;
-		//	HeapFree(GetProcessHeap(), 0, pMyTlsData); // HeapFree isn't detoured
-		//}
 		_ASSERT_EXPR(g_numTlsInstances == 0, L"tls instance leak");
 		TlsFree(g_tlsIndex);
-		//HeapDestroy(g_hHeapCallStacks); // can't destroy heap because static instances will call dtors
 	}
 	break;
 	case DLL_THREAD_DETACH:
@@ -751,7 +742,6 @@ CLINKAGE void EXPORT StartVisualStudio()
 	HookInMyOwnVersion(true);
 
 
-	DoLotsOfThreads();
 
 
 	auto h = GetModuleHandleA(0);
@@ -771,6 +761,8 @@ CLINKAGE void EXPORT StartVisualStudio()
 	DoSomeThreadingModelExperiments();
 
 	CreateComObject();
+
+	DoLotsOfThreads();
 
 	DoSomeManagedCode();
 
