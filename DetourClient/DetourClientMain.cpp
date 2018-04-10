@@ -41,8 +41,8 @@ ntdll.dll!LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1
 ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 75	C
 
 */
-
-HANDLE g_hHeapTls = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 0);
+// create a heap that stores our private data: MyTlsData and Call stacks
+HANDLE g_hHeapDetourData = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 0);
 
 typedef unordered_map < DWORD, MyTlsData *, hash<DWORD>, equal_to<DWORD>, MySTLAlloc<pair<DWORD, MyTlsData *>, StlAllocUseTlsHeap>> mapThreadIdToTls;
 // must be ptr to MyTlsData, because that's what's put in TlsSetValue and can't be moved around in memory

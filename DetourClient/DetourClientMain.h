@@ -50,7 +50,7 @@ extern WCHAR * g_strHeapAllocSizesToCollect;
 extern WCHAR * g_strHeapAllocThresholds;
 extern int g_NumFramesTocapture;
 extern SIZE_T g_HeapAllocSizeMinValue;
-extern HANDLE g_hHeapTls;
+extern HANDLE g_hHeapDetourData;
 
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size);
 
@@ -174,7 +174,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			break;
 		case StlAllocUseCallStackHeap:
 		case StlAllocUseTlsHeap:
-			hHeap = g_hHeapTls;
+			hHeap = g_hHeapDetourData;
 			break;
 		default:
 			break;
@@ -200,7 +200,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			break;
 		case StlAllocUseCallStackHeap:
 		case StlAllocUseTlsHeap:
-			hHeap = g_hHeapTls;
+			hHeap = g_hHeapDetourData;
 			break;
 		default:
 			break;
