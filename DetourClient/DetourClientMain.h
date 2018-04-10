@@ -23,7 +23,7 @@ typedef enum {
 // the different types of heap allocators we use
 typedef enum {
 	StlAllocUseProcessHeap, // limited by process memory space
-	StlAllocUseCallStackHeap,  // limited to e.g. 64k
+	StlAllocUseCallStackHeap,  // limited to e.g. 64k. can throw when out of mem.
 	StlAllocUseTlsHeap,		// only for TLS structures
 	StlAllocMax
 } StlAllocHeapToUse;
@@ -46,25 +46,25 @@ struct HeapSizeData
 extern std::vector<HeapSizeData> g_heapAllocSizes;
 extern DWORD g_dwMainThread;
 
+extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
+
 extern WCHAR * g_strHeapAllocSizesToCollect;
-extern WCHAR * g_strHeapAllocThresholds;
 extern int g_NumFramesTocapture;
 extern SIZE_T g_HeapAllocSizeMinValue;
 extern HANDLE g_hHeapDetourData;
 
-PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size);
-
 struct StlAllocStats
 {
-	LONG _MyStlAllocCurrentTotalAlloc[StlAllocMax];
+	long _MyStlAllocCurrentTotalAlloc[StlAllocMax];
 	long _MyStlAllocBytesEverAlloc[StlAllocMax];
 	long _MyStlTotBytesEverFreed[StlAllocMax];
 
 	int _nTotNumHeapAllocs;// total # of allocations by AllocHeap for collected stacks
 	LONGLONG _TotNumBytesHeapAlloc; // total # bytes alloc'd by AllocHeap for collected stacks
 
-	LONG _MyStlAllocLimit = 65536 * 1;
-	LONG _NumUniqueStacks = 0;
+	long _MyStlAllocLimit = 65536 * 1;
+	long _NumUniqueStacks = 0;
+	long _NumStacksMissed[StackTypeMax]; // missed due to out of memory
 	bool _fReachedMemLimit = false;
 	long _nTotFramesCollected = 0;
 };
@@ -76,7 +76,7 @@ struct MyTlsData
 	static int g_tlsIndex;
 	static CComAutoCriticalSection g_tlsCritSect;
 	static volatile bool g_IsCreatingTlsData;
-	static LONG g_numTlsInstances;
+	static long g_numTlsInstances;
 	static bool DllMain(ULONG ulReason);
 	static MyTlsData* GetTlsData();
 #if _DEBUG
@@ -93,12 +93,6 @@ struct MyTlsData
 	bool _fIsInRtlAllocHeap;
 };
 
-
-
-
-PVOID MyAllocate(StlAllocHeapToUse stlAllocHeapToUse, SIZE_T size);
-
-void MyFree(StlAllocHeapToUse stlAllocHeapToUse, PVOID pmem);
 
 
 template <class T, StlAllocHeapToUse stlAllocHeapToUse>
@@ -137,8 +131,8 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			throw std::bad_array_new_length();
 		}
 		unsigned nSize = (UINT)n * sizeof(T);
-		void *pv = MyAllocate(nSize);
-		if (pv == 0)
+		T *pv = static_cast<T*>(MyAllocate(nSize));
+		if (pv == nullptr)
 		{
 			if (stlAllocHeapToUse == StlAllocUseCallStackHeap)
 			{
@@ -148,7 +142,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 		}
 		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], nSize);
 		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocBytesEverAlloc[stlAllocHeapToUse], nSize);
-		return static_cast<T*>(pv);
+		return pv;
 	}
 	void deallocate(T* const p, size_t n) const
 	{
@@ -156,11 +150,6 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], -((int)nSize));
 		InterlockedAdd(&g_MyStlAllocStats._MyStlTotBytesEverFreed[stlAllocHeapToUse], +(int) nSize);
 		MyFree((PVOID)p);
-		//// upon ininitialize, g_hHeap is null, ebcause the heap has already been deleted, deleting all our objects
-		//if (g_hHeap != nullptr)
-		//{
-		//	HeapFree(g_hHeap, 0, p);
-		//}
 	}
 
 	PVOID MyAllocate(SIZE_T size) const
@@ -208,12 +197,9 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 		HeapFree(hHeap, 0, pmem);
 	}
 
-
-
 	~MySTLAlloc() {
 
 	}
-
 };
 
 //template <class T>
@@ -277,15 +263,14 @@ struct CallStack
 	vecFrames _vecFrames; // the stack frames
 };
 
-typedef std::unordered_map<UINT, CallStack // can't use unique_ptr because can't override it's allocator and thus can cause deadlock
-	,
+typedef std::unordered_map<UINT, CallStack, // can't use unique_ptr because can't override it's allocator and thus can cause deadlock
 	std::hash<UINT>,
 	std::equal_to<UINT>,
 	MySTLAlloc<std::pair<const UINT, CallStack>, StlAllocUseCallStackHeap >
 > mapStackHashToStack; // stackhash=>CallStack
 
-					   // represents the stacks for a particular stack type : e.g. the 100k allocations
-					   // if the stacks are identical, the count is bumped.
+// represents the stacks for a particular stack type : e.g. the 100k allocations
+// if the stacks are identical, the count is bumped.
 struct StacksForStackType
 {
 	StacksForStackType(int numFramesToSkip)
@@ -314,6 +299,8 @@ struct StacksForStackType
 			auto res = _stacks.find(hash);
 			if (res == _stacks.end())
 			{
+				// a new stack we haven't seen before
+				// could have reached limit because we used more mem
 				if (!g_MyStlAllocStats._fReachedMemLimit)
 				{
 					g_MyStlAllocStats._NumUniqueStacks++;
@@ -347,8 +334,7 @@ struct StacksForStackType
 
 typedef UINT mapKey;
 
-typedef std::unordered_map<mapKey, StacksForStackType
-	,
+typedef std::unordered_map<mapKey, StacksForStackType	,
 	std::hash<mapKey>,
 	std::equal_to<mapKey>,
 	MySTLAlloc<std::pair<const mapKey, StacksForStackType>, StlAllocUseCallStackHeap>
@@ -359,15 +345,11 @@ typedef std::unordered_map<mapKey, StacksForStackType
 extern mapStacksByStackType *g_pmapStacksByStackType[];
 
 
-
-
-
 void InitCollectStacks();
 void UninitCollectStacks();
 
 
 bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraData, int numFramesToSkip);// noexcept;
-bool UnCollectStack(StackType stackType, DWORD stackParam);
 
 void DoSomeManagedCode();
 void DoSomeThreadingModelExperiments();

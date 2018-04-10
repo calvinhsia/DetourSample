@@ -12,7 +12,6 @@ SIZE_T g_HeapAllocSizeMinValue = 0;// 1048576;
 
 vector<HeapSizeData> g_heapAllocSizes;
 
-extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
 
 CComAutoCriticalSection g_critSectHeapAlloc;
 
@@ -33,7 +32,6 @@ void InitCollectStacks()
 	{
 		// create using our allocator using placement new 
 		g_pmapStacksByStackType[i] = new (allocator.allocate(sizeof(mapStacksByStackType))) mapStacksByStackType();
-//		g_pmapStacksByStackType[i] = new mapStacksByStackType();
 	}
 }
 
@@ -50,7 +48,6 @@ void UninitCollectStacks()
 	{
 		if (g_pmapStacksByStackType[i] != nullptr)
 		{
-	//		delete g_pmapStacksByStackType[i];
 			g_pmapStacksByStackType[i]->~mapStacksByStackType(); // invoke dtor
 			allocator.deallocate((BYTE *)g_pmapStacksByStackType[i], sizeof(mapStacksByStackType)); // delete the placement new
 		}
@@ -105,9 +102,6 @@ LONGLONG GetNumStacksCollected()
 	int nUniqueStacks = 0;
 	int nFrames = 0;
 	LONGLONG nRpcStacks[2] = { 0 };
-	//g_MyStlAllocStats.g_fReachedMemLimit = false;
-	//g_MyStlAllocStats.g_MyStlAllocLimit *= 2; // double mem used: we're done with detouring
-	auto save_g_MyStlAllocTotalAlloc = g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc;
 	for (int i = 0; i < StackTypeMax; i++)
 	{
 		for (auto &entry : *g_pmapStacksByStackType[i])
@@ -141,7 +135,6 @@ LONGLONG GetNumStacksCollected()
 			}
 		}
 	}
-	//g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc = save_g_MyStlAllocTotalAlloc;
 	/*
 	Sample output from OutputWindow:
 	sizeAlloc=72 cnt=25
@@ -200,6 +193,10 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 			{
 				g_pmapStacksByStackType[stackType]->insert(mapStacksByStackType::value_type(key, move(StacksForStackType(numFramesToSkip))));
 				fDidCollectStack = true;
+			}
+			else
+			{
+				g_MyStlAllocStats._NumStacksMissed[stackType]++;
 			}
 		}
 		else

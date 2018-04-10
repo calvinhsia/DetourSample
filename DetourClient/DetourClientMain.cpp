@@ -19,28 +19,11 @@ pfnRtlFreeHeap Real_RtlFreeHeap;
 
 DWORD g_dwMainThread;
 
-CComAutoCriticalSection g_csHeap;
 
 #define NUMTHREADS 35
 
 void CreateComObject();
 
-// must define this for 64 bit:
-
-
-/*
-Using TlsIndex is a little complicated with heap alloc: When a thread is intialized, another DLL can call TlsAlloc,
-which tries to allocate more memory, but our Tls data hasn't been initialized yet.
-
->	DetourClient.dll!MyRtlAllocateHeap(void * hHeap, unsigned long dwFlags, unsigned long size) Line 36	C++
-ntdll.dll!LdrpGetNewTlsVector(unsigned long EntryCount) Line 674	C
-ntdll.dll!LdrpAllocateTls() Line 810	C
-ntdll.dll!LdrpInitializeThread(_CONTEXT * Context) Line 6244	C
-ntdll.dll!_LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1754	C
-ntdll.dll!LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1403	C
-ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 75	C
-
-*/
 // create a heap that stores our private data: MyTlsData and Call stacks
 HANDLE g_hHeapDetourData = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 0);
 
@@ -87,6 +70,8 @@ bool MyTlsData::DllMain(ULONG ulReason)
 
 		if (res == g_mapThreadIdToTls.end())
 		{
+			// a thread is exiting for which we never created a Tls struct
+			_ASSERT_EXPR(TlsGetValue(g_tlsIndex) == 0, L"how can there be TLS value with no TLS data?");
 		}
 		else
 		{
@@ -100,35 +85,6 @@ bool MyTlsData::DllMain(ULONG ulReason)
 			allocatorByte.deallocate((BYTE *)res->second, sizeof(*res->second));
 			g_mapThreadIdToTls.erase(res);
 		}
-		//auto pMyTlsData = (MyTlsData *)TlsGetValue(g_tlsIndex);
-		//if (pMyTlsData != nullptr)
-		//{
-		//	// we can't wait til end of processs to free this because repeatedly creating/destroying  threads will leak
-		//	{
-		//		CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
-		//		auto pTlsData = g_pTlsDataChain;
-		//		// find the prior one in the linklist
-		//		MyTlsData *pPriorData = nullptr;
-		//		while (pTlsData != pMyTlsData)
-		//		{
-		//			pPriorData = pTlsData;
-		//			pTlsData = pTlsData->_pNextMyTlsData;
-		//		}
-		//		_ASSERT_EXPR(pTlsData == pMyTlsData, L"Tls data wrong");
-		//		if (pPriorData != nullptr)
-		//		{ // splice out the current one
-		//			pPriorData->_pNextMyTlsData = pTlsData->_pNextMyTlsData;
-		//		}
-		//		else
-		//		{ // remove from the front of the list
-		//			g_pTlsDataChain = pTlsData->_pNextMyTlsData;
-		//		}
-		//		g_numTlsInstances--;
-		//	}
-		//	// can safely delete outside csect
-		//	pMyTlsData->~MyTlsData();
-		//	HeapFree(GetProcessHeap(), 0, pMyTlsData); // HeapFree isn't detoured
-		//}
 		break;
 	}
 	return true;
@@ -636,7 +592,6 @@ CLINKAGE void EXPORT StartVisualStudio()
 		mapThreadIdTls::allocator_type alloc;
 		{
 			shared_ptr<MyTlsData> pp = allocate_shared<MyTlsData, MySTLAlloc<MyTlsData, StlAllocUseTlsHeap>>(alloc);
-		//	pp.r
 		}
 		mymap[1]= allocate_shared<MyTlsData, MySTLAlloc<MyTlsData, StlAllocUseTlsHeap>>(alloc);
 	}
