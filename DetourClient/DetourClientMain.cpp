@@ -776,7 +776,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 	CreateComObject();
 
-//	DoSomeManagedCode();
+	DoSomeManagedCode();
 
 
 	// now undo detour redirection, so detouring to stubs:
