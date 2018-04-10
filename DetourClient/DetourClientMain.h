@@ -138,8 +138,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			throw std::bad_array_new_length();
 		}
 		unsigned nSize = (UINT)n * sizeof(T);
-		void *pv = MyAllocate(stlAllocHeapToUse, nSize);
-//		pv = HeapAlloc(g_hHeap, 0, nSize);
+		void *pv = MyAllocate(nSize);
 		if (pv == 0)
 		{
 			if (stlAllocHeapToUse == StlAllocUseCallStackHeap)
@@ -157,14 +156,65 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 		unsigned nSize = (UINT)n * sizeof(T);
 		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], -((int)nSize));
 		InterlockedAdd(&g_MyStlAllocStats._MyStlTotBytesEverFreed[stlAllocHeapToUse], +(int) nSize);
-
-		MyFree(stlAllocHeapToUse, p);
+		MyFree((PVOID)p);
 		//// upon ininitialize, g_hHeap is null, ebcause the heap has already been deleted, deleting all our objects
 		//if (g_hHeap != nullptr)
 		//{
 		//	HeapFree(g_hHeap, 0, p);
 		//}
 	}
+
+	PVOID MyAllocate(SIZE_T size) const
+	{
+		PVOID pmem;
+		HANDLE hHeap;
+		switch (stlAllocHeapToUse)
+		{
+		case StlAllocUseProcessHeap:
+			hHeap = GetProcessHeap();
+			break;
+		case StlAllocUseCallStackHeap:
+			hHeap = g_hHeapCallStacks;
+			break;
+		case StlAllocUseTlsHeap:
+			hHeap = g_hHeapTls;
+			break;
+		default:
+			break;
+		}
+		if (Real_RtlAllocateHeap != nullptr)
+		{
+			pmem = Real_RtlAllocateHeap(hHeap, 0, size);
+		}
+		else
+		{
+			pmem = HeapAlloc(hHeap, 0, size);
+		}
+		return pmem;
+	}
+
+	void MyFree(PVOID pmem) const
+	{
+		HANDLE hHeap;
+		switch (stlAllocHeapToUse)
+		{
+		case StlAllocUseProcessHeap:
+			hHeap = GetProcessHeap();
+			break;
+		case StlAllocUseCallStackHeap:
+			hHeap = g_hHeapCallStacks;
+			break;
+		case StlAllocUseTlsHeap:
+			hHeap = g_hHeapTls;
+			break;
+		default:
+			break;
+		}
+		HeapFree(hHeap, 0, pmem);
+	}
+
+
+
 	~MySTLAlloc() {
 
 	}

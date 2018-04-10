@@ -28,9 +28,13 @@ StlAllocStats g_MyStlAllocStats;
 void InitCollectStacks()
 {
 	g_hHeapCallStacks = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ g_MyStlAllocStats._MyStlAllocLimit);
+	// create an allocator type for BYTE from the same allocator at the map
+	using myByteAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<BYTE>;
+	// create an instance of the allocator type
+	mapStacksByStackType::allocator_type alloc_type;
+	myByteAllocator allocator(alloc_type);
 	for (int i = 0; i < StackTypeMax; i++)
 	{
-		MySTLAlloc<BYTE, StlAllocUseCallStackHeap> allocator;
 		// create using our allocator using placement new 
 		g_pmapStacksByStackType[i] = new (allocator.allocate(sizeof(mapStacksByStackType))) mapStacksByStackType();
 //		g_pmapStacksByStackType[i] = new mapStacksByStackType();
@@ -40,9 +44,14 @@ void InitCollectStacks()
 // call after undetouring
 void UninitCollectStacks()
 {
+	// create an allocator type for BYTE from the same allocator at the map
+	using myByteAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<BYTE>;
+	// create an instance of the allocator type
+	mapStacksByStackType::allocator_type alloc_type;
+	myByteAllocator allocator(alloc_type);
+
 	for (int i = 0; i < StackTypeMax; i++)
 	{
-		MySTLAlloc<BYTE, StlAllocUseCallStackHeap> allocator;
 		if (g_pmapStacksByStackType[i] != nullptr)
 		{
 	//		delete g_pmapStacksByStackType[i];

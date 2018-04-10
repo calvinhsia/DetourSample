@@ -42,62 +42,10 @@ ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Li
 
 */
 
-
-PVOID MyAllocate(StlAllocHeapToUse stlAllocHeapToUse, SIZE_T size)
-{
-	PVOID pmem;
-	HANDLE hHeap;
-	switch (stlAllocHeapToUse)
-	{
-	case StlAllocUseProcessHeap:
-		hHeap = GetProcessHeap();
-		break;
-	case StlAllocUseCallStackHeap:
-		hHeap = g_hHeapCallStacks;
-		break;
-	case StlAllocUseTlsHeap:
-		hHeap = g_hHeapTls;
-		break;
-	default:
-		break;
-	}
-	if (Real_RtlAllocateHeap != nullptr)
-	{
-		pmem = Real_RtlAllocateHeap(hHeap, 0, size);
-	}
-	else
-	{
-		pmem = HeapAlloc(hHeap, 0, size);
-	}
-	return pmem;
-}
-
-void MyFree(StlAllocHeapToUse stlAllocHeapToUse, PVOID pmem)
-{
-	HANDLE hHeap;
-	switch (stlAllocHeapToUse)
-	{
-	case StlAllocUseProcessHeap:
-		hHeap = GetProcessHeap();
-		break;
-	case StlAllocUseCallStackHeap:
-		hHeap = g_hHeapCallStacks;
-		break;
-	case StlAllocUseTlsHeap:
-		hHeap = g_hHeapTls;
-		break;
-	default:
-		break;
-	}
-	HeapFree(hHeap, 0, pmem);
-}
-
-
-
 HANDLE g_hHeapTls = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 0);
 
 typedef unordered_map < DWORD, MyTlsData *, hash<DWORD>, equal_to<DWORD>, MySTLAlloc<pair<DWORD, MyTlsData *>, StlAllocUseTlsHeap>> mapThreadIdToTls;
-// must be ptr to MyTlsData, because that's what's put in TlsSetValue
+// must be ptr to MyTlsData, because that's what's put in TlsSetValue and can't be moved around in memory
 mapThreadIdToTls g_mapThreadIdToTls;
 
 //static 
@@ -116,12 +64,17 @@ bool MyTlsData::DllMain(ULONG ulReason)
 
 	case DLL_PROCESS_DETACH:
 	{
-		decltype(g_mapThreadIdToTls.get_allocator())::rebind<BYTE>::other alloc;
+		// create an allocator type for BYTE from the same allocator at the map
+		using myByteAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
+		// create an instance of the allocator type
+		mapThreadIdToTls::allocator_type alloc_type;
+
+		myByteAllocator allocatorByte(alloc_type);
 
 		for (auto &item : g_mapThreadIdToTls)
 		{
 			item.second->~MyTlsData();
-			alloc.deallocate((BYTE *)item.second, sizeof(*item.second));
+			allocatorByte.deallocate((BYTE *)item.second, sizeof(*item.second));
 		}
 		g_mapThreadIdToTls.clear();
 		//while (g_pTlsDataChain != nullptr)
@@ -134,6 +87,7 @@ bool MyTlsData::DllMain(ULONG ulReason)
 		//}
 		_ASSERT_EXPR(g_numTlsInstances == 0, L"tls instance leak");
 		TlsFree(g_tlsIndex);
+		//HeapDestroy(g_hHeapCallStacks); // can't destroy heap because static instances will call dtors
 	}
 	break;
 	case DLL_THREAD_DETACH:
@@ -146,8 +100,13 @@ bool MyTlsData::DllMain(ULONG ulReason)
 		else
 		{
 			res->second->~MyTlsData();
-			decltype(g_mapThreadIdToTls.get_allocator())::rebind<BYTE>::other alloc;
-			alloc.deallocate((BYTE *)res->second, sizeof(*res->second));
+			// create an allocator type for BYTE from the same allocator at the map
+			using myByteAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
+			// create an instance of the allocator type
+			mapThreadIdToTls::allocator_type alloc_type;
+
+			myByteAllocator allocatorByte(alloc_type);
+			allocatorByte.deallocate((BYTE *)res->second, sizeof(*res->second));
 			g_mapThreadIdToTls.erase(res);
 		}
 		//auto pMyTlsData = (MyTlsData *)TlsGetValue(g_tlsIndex);
@@ -212,14 +171,16 @@ MyTlsData* MyTlsData::GetTlsData()
 		 */
 
 			g_IsCreatingTlsData = true;
-			pfnRtlAllocateHeap allocator = Real_RtlAllocateHeap;
-			if (allocator == nullptr)
-			{
-				allocator = MyRtlAllocateHeap;
-			}
-			auto pmem = (MyTlsData*)allocator(g_hHeapTls, 0, sizeof(MyTlsData));
+			// create an allocator type for BYTE from the same allocator at the map
+			using myByteAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
+			// create an instance of the allocator type
+			mapThreadIdToTls::allocator_type alloc_type;
+
+			myByteAllocator allocatorByte(alloc_type);
+			auto pmem = (MyTlsData*)allocatorByte.allocate(sizeof(MyTlsData));
 			pMyTlsData = new (pmem) MyTlsData();
-			TlsSetValue(g_tlsIndex, pMyTlsData);
+			auto ret = TlsSetValue(g_tlsIndex, pMyTlsData);
+			_ASSERT_EXPR(ret, L"Failed to set tls value");
 			CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
 			auto res = g_mapThreadIdToTls.find(GetCurrentThreadId());
 			if (res != g_mapThreadIdToTls.end())
@@ -227,11 +188,6 @@ MyTlsData* MyTlsData::GetTlsData()
 				_ASSERT_EXPR(false, L"tls already created?");
 			}
 			g_mapThreadIdToTls[GetCurrentThreadId()] = pmem;
-			res = g_mapThreadIdToTls.find(GetCurrentThreadId());
-			g_mapThreadIdToTls.erase(res);
-			g_mapThreadIdToTls[GetCurrentThreadId()] = pmem;
-
-
 			g_IsCreatingTlsData = false;
 		}
 	}
@@ -645,7 +601,7 @@ void RecurDownSomeLevels(int nLevel)
 
 DWORD WINAPI ThreadRoutine(PVOID param)
 {
-	int threadIndex = (int)param;
+	int threadIndex = (int)(INT_PTR)(param);
 	RecurDownSomeLevels(threadIndex);
 	for (int i = 0; i < 1000; i++)
 	{
@@ -667,7 +623,7 @@ void DoLotsOfThreads()
 			hThreads[iThread] = CreateThread(/*LPSECURITY_ATTRIBUTES=*/NULL,
 				/*dwStackSize=*/ 1024*256,
 				&ThreadRoutine,
-				/* lpThreadParameter*/(PVOID)iThread,
+				/* lpThreadParameter*/(PVOID)(INT_PTR)iThread,
 				/*dwCreateFlags*/ 0, /// CREATE_SUSPENDED
 				&dwThreadIds[iThread]
 			);
@@ -681,6 +637,7 @@ void DoLotsOfThreads()
 CLINKAGE void EXPORT StartVisualStudio()
 {
 	{
+		// experiment with shared_ptr. Can use custom allocator, but can't get attach/detach to work for TlsSetValue
 		typedef unordered_map < DWORD, shared_ptr<MyTlsData>,
 			hash<DWORD>, equal_to<DWORD>, MySTLAlloc<pair<DWORD, shared_ptr<MyTlsData>>, StlAllocUseTlsHeap>> mapThreadIdTls;
 		mapThreadIdTls mymap;
@@ -688,27 +645,65 @@ CLINKAGE void EXPORT StartVisualStudio()
 		mapThreadIdTls::allocator_type alloc;
 		{
 			shared_ptr<MyTlsData> pp = allocate_shared<MyTlsData, MySTLAlloc<MyTlsData, StlAllocUseTlsHeap>>(alloc);
+		//	pp.r
 		}
 		mymap[1]= allocate_shared<MyTlsData, MySTLAlloc<MyTlsData, StlAllocUseTlsHeap>>(alloc);
 	}
 	{
-		mapThreadIdToTls mymap;// = new mapThreadIdToTls();
-		decltype(mymap.get_allocator())::rebind<BYTE>::other alloc;
+		/*
+		// experiment with shared_ptr<unique_ptr<.  Can't use because no custom allocator for unique_ptr
+		typedef unordered_map < DWORD, shared_ptr<MyTlsData>,
+			hash<DWORD>, equal_to<DWORD>, MySTLAlloc<pair<DWORD, shared_ptr<MyTlsData>>, StlAllocUseTlsHeap>> mapThreadIdTls;
+		mapThreadIdTls mymap;
+		mapThreadIdTls::allocator_type alloc;
+		{
+			shared_ptr<unique_ptr<MyTlsData>> ptr = allocate_shared<unique_ptr<MyTlsData>, MySTLAlloc<unique_ptr<MyTlsData>, StlAllocUseTlsHeap>>(alloc);
+			
+		}
+		*/
+	}
+	{
+		
+		mapThreadIdToTls mymap;
+		// create an allocator type for BYTE from the same allocator at the map
+		using myByteAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
+		// create an instance of the allocator type
+		mapThreadIdToTls::allocator_type alloc_type;
 
-		auto p = new (alloc.allocate(sizeof(MyTlsData))) MyTlsData();
+		myByteAllocator allocatorByte(alloc_type);
+		auto p = new (allocatorByte.allocate(sizeof(MyTlsData))) MyTlsData();
 		mymap[(DWORD)1] = (MyTlsData *)p;
-		auto q = new (alloc.allocate(sizeof(MyTlsData))) MyTlsData();
+		auto q = new (allocatorByte.allocate(sizeof(MyTlsData))) MyTlsData();
 		mymap[(DWORD)2] = (MyTlsData *)q;
 		auto res = mymap.find(1);
 		res->second->~MyTlsData();
-		alloc.deallocate((BYTE *)res->second, sizeof(*res->second));
+		allocatorByte.deallocate((BYTE *)res->second, sizeof(*res->second));
 		mymap.erase(res);
 		for (auto &x : mymap)
 		{
 			x.second->~MyTlsData();
-			alloc.deallocate((BYTE *)x.second, sizeof(*x.second));
+			allocatorByte.deallocate((BYTE *)x.second, sizeof(*x.second));
 		}
 		mymap.clear();
+	}
+	{
+		//mapThreadIdToTls mymap;// = new mapThreadIdToTls();
+		//decltype(mymap.get_allocator())::rebind<BYTE>::other alloc;
+
+		//auto p = new (alloc.allocate(sizeof(MyTlsData))) MyTlsData();
+		//mymap[(DWORD)1] = (MyTlsData *)p;
+		//auto q = new (alloc.allocate(sizeof(MyTlsData))) MyTlsData();
+		//mymap[(DWORD)2] = (MyTlsData *)q;
+		//auto res = mymap.find(1);
+		//res->second->~MyTlsData();
+		//alloc.deallocate((BYTE *)res->second, sizeof(*res->second));
+		//mymap.erase(res);
+		//for (auto &x : mymap)
+		//{
+		//	x.second->~MyTlsData();
+		//	alloc.deallocate((BYTE *)x.second, sizeof(*x.second));
+		//}
+		//mymap.clear();
 	}
 
 	g_dwMainThread = GetCurrentThreadId();
@@ -786,8 +781,8 @@ CLINKAGE void EXPORT StartVisualStudio()
 	GetModuleFileNameA(0, &buff[0], (DWORD)buff.length());
 
 	LONGLONG nStacksCollected = GetNumStacksCollected();
-	sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d g_hHeap =%08x (%08x)",
-		g_MyStlAllocStats._nTotNumHeapAllocs, g_MyStlAllocStats._TotNumBytesHeapAlloc, nStacksCollected, g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap], (int)g_hHeapCallStacks, (int)*(int *)g_hHeapCallStacks);
+	sprintf_s(&buff[0], buff.length(), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld    StackSpaceUsed=%d",
+		g_MyStlAllocStats._nTotNumHeapAllocs, g_MyStlAllocStats._TotNumBytesHeapAlloc, nStacksCollected, g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap]);
 
 
 	MessageBoxA(0, &buff[0], "Calling the WinApi version of MessageboxA", 0);
