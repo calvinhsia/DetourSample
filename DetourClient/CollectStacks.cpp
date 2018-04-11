@@ -6,10 +6,14 @@
 
 using namespace std;
 
+// these are settable by remote settings
 WCHAR * g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
 int g_NumFramesTocapture = 20;
 SIZE_T g_HeapAllocSizeMinValue = 0;// 1048576;
+long g_MyStlAllocLimit = 65536 * 1;
 
+
+// our private heap
 HANDLE g_hHeapDetourData;
 
 
@@ -151,25 +155,25 @@ void InitCollectStacks()
 
 	// init Tls map
 	// create an allocator type from the mapThreadIdToTls allocator
-	using myTlsAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
+	using myTlsAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<mapThreadIdToTls>;
 	// create an instance of the allocator
 	mapThreadIdToTls::allocator_type  allocTls_Type;
 	myTlsAllocator allocTls(allocTls_Type);
 	
-	g_pmapThreadIdToTls = new (allocTls.allocate(sizeof(mapThreadIdToTls))) mapThreadIdToTls();
+	g_pmapThreadIdToTls = new (allocTls.allocate(1)) mapThreadIdToTls();
 
 
 
 	// init stack maps
 	// create an allocator type for BYTE from the same allocator as the map
-	using myByteAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<BYTE>;
+	using myStackTypeAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<mapStacksByStackType>;
 	// create an instance of the allocator type
 	mapStacksByStackType::allocator_type alloc_type;
-	myByteAllocator allocator(alloc_type);
+	myStackTypeAllocator allocator(alloc_type);
 	for (int i = 0; i < StackTypeMax; i++)
 	{
 		// create using our allocator using placement new 
-		g_pmapStacksByStackType[i] = new (allocator.allocate(sizeof(mapStacksByStackType))) mapStacksByStackType();
+		g_pmapStacksByStackType[i] = new (allocator.allocate(1)) mapStacksByStackType();
 	}
 }
 
@@ -177,7 +181,7 @@ void InitCollectStacks()
 void UninitCollectStacks()
 {
 	// create an allocator type for BYTE from the same allocator as the map
-	using myByteAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<BYTE>;
+	using myByteAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<mapStacksByStackType>;
 	// create an instance of the allocator type
 	mapStacksByStackType::allocator_type alloc_type;
 	myByteAllocator allocator(alloc_type);
@@ -187,7 +191,7 @@ void UninitCollectStacks()
 		if (g_pmapStacksByStackType[i] != nullptr)
 		{
 			g_pmapStacksByStackType[i]->~mapStacksByStackType(); // invoke dtor
-			allocator.deallocate((BYTE *)g_pmapStacksByStackType[i], sizeof(mapStacksByStackType)); // delete the placement new
+			allocator.deallocate(g_pmapStacksByStackType[i], 1); // delete the placement new
 		}
 	}
 	//	MessageBoxA(0, "about to Heap destroy", "", 0);
@@ -380,7 +384,7 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 	}
 	if (fDidCollectStack && !g_MyStlAllocStats._fReachedMemLimit)
 	{
-		if (g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] >= g_MyStlAllocStats._MyStlAllocLimit)
+		if (g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] >= g_MyStlAllocLimit)
 		{
 			g_MyStlAllocStats._fReachedMemLimit = true;
 		}

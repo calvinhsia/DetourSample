@@ -28,6 +28,10 @@ typedef enum {
 	StlAllocMax
 } StlAllocHeapToUse;
 
+void InitCollectStacks();
+void UninitCollectStacks();
+bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraData, int numFramesToSkip);
+
 struct HeapSizeData
 {
 	HeapSizeData(int nSize, int nThresh)
@@ -44,13 +48,13 @@ struct HeapSizeData
 //  Contains HeapSizeData for exact match
 //once initialized, this vector is const except for the counts, which are interlocked when changed. Thus it's thread safe
 extern std::vector<HeapSizeData> g_heapAllocSizes;
-extern DWORD g_dwMainThread;
 
 extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
 
 extern WCHAR * g_strHeapAllocSizesToCollect;
 extern int g_NumFramesTocapture;
 extern SIZE_T g_HeapAllocSizeMinValue;
+extern long g_MyStlAllocLimit;
 
 
 
@@ -63,7 +67,6 @@ struct StlAllocStats
 	int _nTotNumHeapAllocs;// total # of allocations by AllocHeap for collected stacks
 	LONGLONG _TotNumBytesHeapAlloc; // total # bytes alloc'd by AllocHeap for collected stacks
 
-	long _MyStlAllocLimit = 65536 * 1;
 	long _NumUniqueStacks = 0;
 	long _NumStacksMissed[StackTypeMax]; // missed due to out of memory
 	bool _fReachedMemLimit = false;
@@ -74,10 +77,59 @@ extern StlAllocStats g_MyStlAllocStats;
 extern HANDLE g_hHeapDetourData;
 
 
+/*
+using a normal Critsect causes a heap alloc for each "deferred critical section".
+use our own to bypass that.
+Event without the Debug info, we still have these members:
+	LockCount
+	RecursionCount
+	OwningThread
+	LockSemaphore
+	SpinCount
+Another workaround: the deferred debug info (RtlpAddDebugInfoToCriticalSection) is added only the first time contended.
+// minkernel\ntos\rtl\resource.c
+
+DetourClient.dll!MyRtlAllocateHeap(void *, unsigned long, unsigned long) Line 196	C++
+ntdll.dll!RtlpAllocateDebugInfo() Line 494	C
+ntdll.dll!RtlpAddDebugInfoToCriticalSection(_RTL_CRITICAL_SECTION *) Line 3562	C
+[Inline Frame] ntdll.dll!RtlpInitializeDeferredCriticalSection(_RTL_CRITICAL_SECTION *) Line 884	C
+ntdll.dll!RtlpWaitOnCriticalSection(_RTL_CRITICAL_SECTION *, unsigned long) Line 1423	C
+ntdll.dll!RtlpEnterCriticalSectionContended(_RTL_CRITICAL_SECTION *) Line 2163	C
+ntdll.dll!RtlEnterCriticalSection(_RTL_CRITICAL_SECTION *) Line 1779	C
+DetourClient.dll!ATL::CComCriticalSection::Lock() Line 160	C++
+DetourClient.dll!ATL::CComCritSecLock<ATL::CComAutoCriticalSection>::Lock() Line 380	C++
+DetourClient.dll!ATL::CComCritSecLock<ATL::CComAutoCriticalSection>::CComCritSecLock<ATL::CComAutoCriticalSection>(ATL::CComAutoCriticalSection &, bool) Line 352	C++
+DetourClient.dll!MyTlsData::GetTlsData() Line 93
+*/
+class MyCriticalSectionNoDebugInfo
+{
+	CRITICAL_SECTION _CritSect;
+public:
+	MyCriticalSectionNoDebugInfo()
+	{
+		InitializeCriticalSectionEx(&_CritSect,/*spincount*/0, CRITICAL_SECTION_NO_DEBUG_INFO);
+	}
+	~MyCriticalSectionNoDebugInfo()
+	{
+		DeleteCriticalSection(&_CritSect);
+	}
+	HRESULT Lock()
+	{
+		EnterCriticalSection(&_CritSect);
+		return S_OK;
+	}
+	void Unlock()
+	{
+		LeaveCriticalSection(&_CritSect);
+	}
+};
+
+
+
 struct MyTlsData
 {
+	static MyCriticalSectionNoDebugInfo g_tlsCritSect; // option for testing: use  CComAutoCriticalSection or MyCriticalSectionNoDebugInfo
 	static int g_tlsIndex;
-	static CComAutoCriticalSection g_tlsCritSect;
 	static volatile bool g_IsCreatingTlsData;
 	static long g_numTlsInstances;
 	static bool DllMain(ULONG ulReason);
@@ -232,11 +284,8 @@ extern mapThreadIdToTls* g_pmapThreadIdToTls;
 
 
 
-void InitCollectStacks();
-void UninitCollectStacks();
 
 
-bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraData, int numFramesToSkip);// noexcept;
 
 void DoSomeManagedCode();
 void DoSomeThreadingModelExperiments();

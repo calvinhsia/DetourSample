@@ -25,7 +25,7 @@ DWORD g_dwMainThread;
 void CreateComObject();
 
 int MyTlsData::g_tlsIndex;
-CComAutoCriticalSection MyTlsData::g_tlsCritSect;
+MyCriticalSectionNoDebugInfo MyTlsData::g_tlsCritSect;
 bool volatile MyTlsData::g_IsCreatingTlsData;
 long MyTlsData::g_numTlsInstances;
 
@@ -58,7 +58,7 @@ bool MyTlsData::DllMain(ULONG ulReason)
 	case DLL_THREAD_DETACH:
 		if (g_pmapThreadIdToTls != nullptr)
 		{
-			CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
+			CComCritSecLock<decltype(g_tlsCritSect)> lock(g_tlsCritSect);
 			auto res = g_pmapThreadIdToTls->find(GetCurrentThreadId());
 
 			if (res == g_pmapThreadIdToTls->end())
@@ -90,13 +90,14 @@ MyTlsData* MyTlsData::GetTlsData()
 	auto pMyTlsData = (MyTlsData *)TlsGetValue(g_tlsIndex);
 	if (pMyTlsData == nullptr)
 	{
+		CComCritSecLock<decltype(g_tlsCritSect)> lock(g_tlsCritSect);
 		if (!g_IsCreatingTlsData)
 		{/*
 		 Because new thread creation can grow TLS structures, which call heapalloc internally, and those
 		 heapalloc calls can internally grow internal heap blocks by calling heapalloc, we cannot
 		 recur and we cannot create our TLS data in the same heap at this time.
 		 thus we could potentially miss an allocation detour because detour prevention is done on all threads (g_IsCreatingTlsData is a static)
-		 We would miss an allocation only on a new thread (that doesn't have a MyTlsData yet) if another thread is currently creating a MyTlsData
+
 		 >	DetourClient.dll!MyRtlAllocateHeap(void *, unsigned long, unsigned long)	C++
 		 ntdll.dll!RtlpAllocateUserBlockFromHeap(_HEAP *, unsigned char, unsigned long, unsigned char)	C
 		 ntdll.dll!RtlpAllocateUserBlock(_LFH_HEAP *, unsigned char, unsigned long, unsigned char)	C
@@ -112,23 +113,30 @@ MyTlsData* MyTlsData::GetTlsData()
 		 */
 
 			g_IsCreatingTlsData = true;
-			// create an allocator type for BYTE from the same allocator at the map
-			using myByteAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
-			// create an instance of the allocator type
-			mapThreadIdToTls::allocator_type alloc_type;
-
-			myByteAllocator allocatorByte(alloc_type);
-			auto pmem = (MyTlsData*)allocatorByte.allocate(sizeof(MyTlsData));
-			pMyTlsData = new (pmem) MyTlsData();
-			auto ret = TlsSetValue(g_tlsIndex, pMyTlsData);
-			_ASSERT_EXPR(ret, L"Failed to set tls value");
-			CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
 			auto res = g_pmapThreadIdToTls->find(GetCurrentThreadId());
 			if (res != g_pmapThreadIdToTls->end())
 			{
-				_ASSERT_EXPR(false, L"tls already created?");
+				_ASSERT_EXPR(((MyTlsData *)TlsGetValue(g_tlsIndex))->_dwThreadId == GetCurrentThreadId(), L"tls already created?");
 			}
-			(*g_pmapThreadIdToTls)[GetCurrentThreadId()] = pmem;
+			else
+			{
+				// create an allocator type for BYTE from the same allocator at the map
+				using myTlsDataAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<MyTlsData>;
+				// create an instance of the allocator type
+				mapThreadIdToTls::allocator_type alloc_type;
+
+				myTlsDataAllocator allocatorByte(alloc_type);
+				auto pmem = allocatorByte.allocate(1);
+				pMyTlsData = new (pmem) MyTlsData();
+				if (TlsGetValue(g_tlsIndex) != nullptr)
+				{
+					_ASSERT_EXPR(TlsGetValue(g_tlsIndex) == nullptr, L"tlsvalue should be 0");
+				}
+				(*g_pmapThreadIdToTls)[GetCurrentThreadId()] = pmem;
+				auto ret = TlsSetValue(g_tlsIndex, pMyTlsData);
+				_ASSERT_EXPR(ret, L"Failed to set tls value");
+
+			}
 			g_IsCreatingTlsData = false;
 		}
 	}
@@ -184,7 +192,6 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 		ntdll.dll!LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1403	C	Symbols loaded.
 		ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 75	C	Symbols loaded.
 		*/
-
 		if (!pMyTlsData->_fIsInRtlAllocHeap) // this is the more expensive thread local check
 		{
 			pMyTlsData->_fIsInRtlAllocHeap = true;
