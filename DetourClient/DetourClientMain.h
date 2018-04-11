@@ -70,26 +70,8 @@ struct StlAllocStats
 	long _nTotFramesCollected = 0;
 };
 extern StlAllocStats g_MyStlAllocStats;
-struct HeapHolder
-{
-	// ensure that this _instance is statically initialized before the users of MyStlAlloc so the right heap is used.
-	//    putting this _instance before the consumers of MyStlAlloc (in the same compilation unit) will do this
-	static HeapHolder _instance;
-	// create a heap that stores our private data: MyTlsData and Call stacks
-	HANDLE g_hHeapDetourData;
-	HeapHolder()
-	{
-		g_hHeapDetourData = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 0);
-	}
-	~HeapHolder()
-	{
-		for (int i = 0; i < StackTypeHeapAlloc; i++)
-		{
-			_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[i] == 0, L"Heap leak");
-		}
-		HeapDestroy(g_hHeapDetourData);
-	}
-};
+// create a heap that stores our private data: MyTlsData and Call stacks
+extern HANDLE g_hHeapDetourData;
 
 
 struct MyTlsData
@@ -184,7 +166,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			break;
 		case StlAllocUseCallStackHeap:
 		case StlAllocUseTlsHeap:
-			hHeap = HeapHolder::_instance.g_hHeapDetourData;
+			hHeap = g_hHeapDetourData;
 			_ASSERT_EXPR(hHeap != 0, L"Heap null");
 			break;
 		default:
@@ -211,7 +193,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			break;
 		case StlAllocUseCallStackHeap:
 		case StlAllocUseTlsHeap:
-			hHeap = HeapHolder::_instance.g_hHeapDetourData;
+			hHeap = g_hHeapDetourData;
 			break;
 		default:
 			break;
@@ -223,6 +205,10 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 
 	}
 };
+
+// must be ptr to MyTlsData, because that's what's put in TlsSetValue and can't be moved around in memory
+typedef std::unordered_map < DWORD, MyTlsData *, std::hash<DWORD>, std::equal_to<DWORD>, MySTLAlloc<std::pair<DWORD, MyTlsData *>, StlAllocUseTlsHeap>> mapThreadIdToTls;
+extern mapThreadIdToTls* g_pmapThreadIdToTls;
 
 //template <class T>
 //inline void hash_combine(std::size_t & seed, const T & v)

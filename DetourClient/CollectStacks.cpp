@@ -10,6 +10,7 @@ WCHAR * g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
 int g_NumFramesTocapture = 20;
 SIZE_T g_HeapAllocSizeMinValue = 0;// 1048576;
 
+HANDLE g_hHeapDetourData;
 
 
 vector<HeapSizeData> g_heapAllocSizes;
@@ -145,7 +146,22 @@ StlAllocStats g_MyStlAllocStats;
 
 void InitCollectStacks()
 {
-	// create an allocator type for BYTE from the same allocator at the map
+	// create a heap that stores our private data: MyTlsData and Call stacks
+	g_hHeapDetourData = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 0);
+
+	// init Tls map
+	// create an allocator type from the mapThreadIdToTls allocator
+	using myTlsAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
+	// create an instance of the allocator
+	mapThreadIdToTls::allocator_type  allocTls_Type;
+	myTlsAllocator allocTls(allocTls_Type);
+	
+	g_pmapThreadIdToTls = new (allocTls.allocate(sizeof(mapThreadIdToTls))) mapThreadIdToTls();
+
+
+
+	// init stack maps
+	// create an allocator type for BYTE from the same allocator as the map
 	using myByteAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<BYTE>;
 	// create an instance of the allocator type
 	mapStacksByStackType::allocator_type alloc_type;
@@ -160,7 +176,7 @@ void InitCollectStacks()
 // call after undetouring
 void UninitCollectStacks()
 {
-	// create an allocator type for BYTE from the same allocator at the map
+	// create an allocator type for BYTE from the same allocator as the map
 	using myByteAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<BYTE>;
 	// create an instance of the allocator type
 	mapStacksByStackType::allocator_type alloc_type;
@@ -174,8 +190,39 @@ void UninitCollectStacks()
 			allocator.deallocate((BYTE *)g_pmapStacksByStackType[i], sizeof(mapStacksByStackType)); // delete the placement new
 		}
 	}
-//	MessageBoxA(0, "about to Heap destroy", "", 0);
-	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] == 0,L"Should be leakless");
+	//	MessageBoxA(0, "about to Heap destroy", "", 0);
+	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] == 0, L"Should be leakless");
+
+
+	// now uninit the Tls map
+	// create an allocator type from the mapThreadIdToTls allocator
+	using myTlsAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
+	// create an instance of the allocator
+	mapThreadIdToTls::allocator_type  allocTls_Type;
+	myTlsAllocator allocTls(allocTls_Type);
+
+	for (auto &item : *g_pmapThreadIdToTls)
+	{
+		item.second->~MyTlsData();
+		allocTls.deallocate((BYTE *)item.second, sizeof(*item.second));
+	}
+	g_pmapThreadIdToTls->clear();
+	_ASSERT_EXPR(MyTlsData::g_numTlsInstances == 0, L"tls instance leak");
+
+	g_pmapThreadIdToTls->~mapThreadIdToTls();
+	allocTls.deallocate((BYTE *)g_pmapThreadIdToTls, sizeof(mapThreadIdToTls));
+	g_pmapThreadIdToTls = nullptr;
+
+	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseTlsHeap] == 0, L"tls instance mem leak");
+
+
+	// now destroy the heap
+	for (int i = 0; i < StackTypeHeapAlloc; i++)
+	{
+		_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[i] == 0, L"Heap leak");
+	}
+	HeapDestroy(g_hHeapDetourData);
+
 }
 
 

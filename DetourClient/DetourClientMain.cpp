@@ -24,8 +24,6 @@ DWORD g_dwMainThread;
 
 void CreateComObject();
 
-HeapHolder HeapHolder::_instance;
-
 int MyTlsData::g_tlsIndex;
 CComAutoCriticalSection MyTlsData::g_tlsCritSect;
 bool volatile MyTlsData::g_IsCreatingTlsData;
@@ -36,9 +34,7 @@ int MyTlsData::_tlsSerialNo;
 #endif _DEBUG
 
 
-typedef unordered_map < DWORD, MyTlsData *, hash<DWORD>, equal_to<DWORD>, MySTLAlloc<pair<DWORD, MyTlsData *>, StlAllocUseTlsHeap>> mapThreadIdToTls;
-// must be ptr to MyTlsData, because that's what's put in TlsSetValue and can't be moved around in memory
-mapThreadIdToTls g_mapThreadIdToTls;
+mapThreadIdToTls* g_pmapThreadIdToTls;
 
 //static 
 bool MyTlsData::DllMain(ULONG ulReason)
@@ -56,43 +52,32 @@ bool MyTlsData::DllMain(ULONG ulReason)
 
 	case DLL_PROCESS_DETACH:
 	{
-		// create an allocator type for BYTE from the same allocator at the map
-		using myByteAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
-		// create an instance of the allocator type
-		mapThreadIdToTls::allocator_type alloc_type;
-
-		myByteAllocator allocatorByte(alloc_type);
-
-		for (auto &item : g_mapThreadIdToTls)
-		{
-			item.second->~MyTlsData();
-			allocatorByte.deallocate((BYTE *)item.second, sizeof(*item.second));
-		}
-		g_mapThreadIdToTls.clear();
-		_ASSERT_EXPR(g_numTlsInstances == 0, L"tls instance leak");
 		TlsFree(g_tlsIndex);
 	}
 	break;
 	case DLL_THREAD_DETACH:
-		CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
-		auto res = g_mapThreadIdToTls.find(GetCurrentThreadId());
-
-		if (res == g_mapThreadIdToTls.end())
+		if (g_pmapThreadIdToTls != nullptr)
 		{
-			// a thread is exiting for which we never created a Tls struct
-			_ASSERT_EXPR(TlsGetValue(g_tlsIndex) == 0, L"how can there be TLS value with no TLS data?");
-		}
-		else
-		{
-			res->second->~MyTlsData();
-			// create an allocator type for BYTE from the same allocator at the map
-			using myByteAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
-			// create an instance of the allocator type
-			mapThreadIdToTls::allocator_type alloc_type;
+			CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
+			auto res = g_pmapThreadIdToTls->find(GetCurrentThreadId());
 
-			myByteAllocator allocatorByte(alloc_type);
-			allocatorByte.deallocate((BYTE *)res->second, sizeof(*res->second));
-			g_mapThreadIdToTls.erase(res);
+			if (res == g_pmapThreadIdToTls->end())
+			{
+				// a thread is exiting for which we never created a Tls struct
+				_ASSERT_EXPR(TlsGetValue(g_tlsIndex) == 0, L"how can there be TLS value with no TLS data?");
+			}
+			else
+			{
+				res->second->~MyTlsData();
+				// create an allocator type for BYTE from the same allocator at the map
+				using myByteAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
+				// create an instance of the allocator type
+				mapThreadIdToTls::allocator_type alloc_type;
+
+				myByteAllocator allocatorByte(alloc_type);
+				allocatorByte.deallocate((BYTE *)res->second, sizeof(*res->second));
+				g_pmapThreadIdToTls->erase(res);
+			}
 		}
 		break;
 	}
@@ -138,12 +123,12 @@ MyTlsData* MyTlsData::GetTlsData()
 			auto ret = TlsSetValue(g_tlsIndex, pMyTlsData);
 			_ASSERT_EXPR(ret, L"Failed to set tls value");
 			CComCritSecLock<CComAutoCriticalSection> lock(g_tlsCritSect);
-			auto res = g_mapThreadIdToTls.find(GetCurrentThreadId());
-			if (res != g_mapThreadIdToTls.end())
+			auto res = g_pmapThreadIdToTls->find(GetCurrentThreadId());
+			if (res != g_pmapThreadIdToTls->end())
 			{
 				_ASSERT_EXPR(false, L"tls already created?");
 			}
-			g_mapThreadIdToTls[GetCurrentThreadId()] = pmem;
+			(*g_pmapThreadIdToTls)[GetCurrentThreadId()] = pmem;
 			g_IsCreatingTlsData = false;
 		}
 	}
@@ -584,6 +569,8 @@ void DoLotsOfThreads()
 
 CLINKAGE void EXPORT StartVisualStudio()
 {
+	InitCollectStacks();
+
 	{
 		// experiment with shared_ptr. Can use custom allocator, but can't get attach/detach to work for TlsSetValue
 		typedef unordered_map < DWORD, shared_ptr<MyTlsData>,
@@ -691,7 +678,6 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 
 
-	InitCollectStacks();
 
 	RecurDownSomeLevels(200);
 
