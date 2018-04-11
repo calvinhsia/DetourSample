@@ -51,6 +51,7 @@ extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
 extern WCHAR * g_strHeapAllocSizesToCollect;
 extern int g_NumFramesTocapture;
 extern SIZE_T g_HeapAllocSizeMinValue;
+
 extern HANDLE g_hHeapDetourData;
 
 struct StlAllocStats
@@ -222,127 +223,6 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 //};
 
 
-typedef std::vector<PVOID
-	, MySTLAlloc<PVOID, StlAllocUseCallStackHeap>
-> vecFrames;
-
-// Collects the callstack and calculates the stack hash
-// represents a single call stack and how often the identical stack occurs
-struct CallStack
-{
-	CallStack(int NumFramesToSkip) : _nOccur(1)
-	{
-		_vecFrames.resize(g_NumFramesTocapture);
-		int nFrames = RtlCaptureStackBackTrace(
-			/*FramesToSkip*/ NumFramesToSkip,
-			/*FramesToCapture*/ g_NumFramesTocapture,
-			&_vecFrames[0],
-			&_stackHash
-		);
-		_vecFrames.resize(nFrames);
-	}
-	CallStack(CallStack&& other) // move constructor
-	{
-		_stackHash = other._stackHash;
-		_nOccur = other._nOccur;
-		_vecFrames = std::move(other._vecFrames);
-	}
-	CallStack& operator = (CallStack&& other) // move assignment
-	{
-		if (this != &other)
-		{
-			_stackHash = other._stackHash;
-			_nOccur = other._nOccur;
-			_vecFrames = std::move(other._vecFrames);
-		}
-		return *this;
-	}
-
-	ULONG _stackHash; // hash of stack 4 bytes in both x86 and amd64
-	int _nOccur;   // # of occurrences of this particular stack
-	vecFrames _vecFrames; // the stack frames
-};
-
-typedef std::unordered_map<UINT, CallStack, // can't use unique_ptr because can't override it's allocator and thus can cause deadlock
-	std::hash<UINT>,
-	std::equal_to<UINT>,
-	MySTLAlloc<std::pair<const UINT, CallStack>, StlAllocUseCallStackHeap >
-> mapStackHashToStack; // stackhash=>CallStack
-
-// represents the stacks for a particular stack type : e.g. the 100k allocations
-// if the stacks are identical, the count is bumped.
-struct StacksForStackType
-{
-	StacksForStackType(int numFramesToSkip)
-	{
-		AddNewStack(numFramesToSkip);
-	}
-	StacksForStackType(StacksForStackType&& other) // move constructor
-	{
-		_stacks = std::move(other._stacks);
-	}
-	StacksForStackType & operator = (StacksForStackType&& other) // move assignment
-	{
-		if (this != &other)
-		{
-			this->_stacks = std::move(other._stacks);
-		}
-		return *this;
-	}
-	bool AddNewStack(int numFramesToSkip)
-	{
-		bool fDidAdd = false;
-		if (!g_MyStlAllocStats._fReachedMemLimit)
-		{
-			CallStack stack(numFramesToSkip);
-			auto hash = stack._stackHash;
-			auto res = _stacks.find(hash);
-			if (res == _stacks.end())
-			{
-				// a new stack we haven't seen before
-				// could have reached limit because we used more mem
-				if (!g_MyStlAllocStats._fReachedMemLimit)
-				{
-					g_MyStlAllocStats._NumUniqueStacks++;
-					g_MyStlAllocStats._nTotFramesCollected += (long)stack._vecFrames.size();
-					_stacks.insert(mapStackHashToStack::value_type(hash, std::move(stack)));
-					fDidAdd = true;
-				}
-			}
-			else
-			{
-				res->second._nOccur++;
-				fDidAdd = true;
-			}
-		}
-		return fDidAdd;
-	}
-
-	LONGLONG GetTotalNumStacks()
-	{
-		auto tot = 0l;
-		for (auto &stack : _stacks)
-		{
-			tot += stack.second._nOccur;
-		}
-		return tot;
-	}
-	// map of stack hash to CalLStack
-	mapStackHashToStack _stacks;
-
-};
-
-typedef UINT mapKey;
-
-typedef std::unordered_map<mapKey, StacksForStackType	,
-	std::hash<mapKey>,
-	std::equal_to<mapKey>,
-	MySTLAlloc<std::pair<const mapKey, StacksForStackType>, StlAllocUseCallStackHeap>
-> mapStacksByStackType;
-
-// map the Size of an alloc to all the stacks that allocated that size.
-// note: if we're looking for all allocs of a specific size (e.g. 1Mb), then no need for a map by size (because all keys will be the same): more efficient to just use a mapStacks
-extern mapStacksByStackType *g_pmapStacksByStackType[];
 
 
 void InitCollectStacks();
