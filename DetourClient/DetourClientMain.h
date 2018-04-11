@@ -52,7 +52,7 @@ extern WCHAR * g_strHeapAllocSizesToCollect;
 extern int g_NumFramesTocapture;
 extern SIZE_T g_HeapAllocSizeMinValue;
 
-extern HANDLE g_hHeapDetourData;
+
 
 struct StlAllocStats
 {
@@ -70,6 +70,26 @@ struct StlAllocStats
 	long _nTotFramesCollected = 0;
 };
 extern StlAllocStats g_MyStlAllocStats;
+struct HeapHolder
+{
+	// ensure that this _instance is statically initialized before the users of MyStlAlloc so the right heap is used.
+	//    putting this _instance before the consumers of MyStlAlloc (in the same compilation unit) will do this
+	static HeapHolder _instance;
+	// create a heap that stores our private data: MyTlsData and Call stacks
+	HANDLE g_hHeapDetourData;
+	HeapHolder()
+	{
+		g_hHeapDetourData = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 0);
+	}
+	~HeapHolder()
+	{
+		for (int i = 0; i < StackTypeHeapAlloc; i++)
+		{
+			_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[i] == 0, L"Heap leak");
+		}
+		HeapDestroy(g_hHeapDetourData);
+	}
+};
 
 
 struct MyTlsData
@@ -149,7 +169,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 	{
 		unsigned nSize = (UINT)n * sizeof(T);
 		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], -((int)nSize));
-		InterlockedAdd(&g_MyStlAllocStats._MyStlTotBytesEverFreed[stlAllocHeapToUse], +(int) nSize);
+		InterlockedAdd(&g_MyStlAllocStats._MyStlTotBytesEverFreed[stlAllocHeapToUse], +(int)nSize);
 		MyFree((PVOID)p);
 	}
 
@@ -164,7 +184,8 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			break;
 		case StlAllocUseCallStackHeap:
 		case StlAllocUseTlsHeap:
-			hHeap = g_hHeapDetourData;
+			hHeap = HeapHolder::_instance.g_hHeapDetourData;
+			_ASSERT_EXPR(hHeap != 0, L"Heap null");
 			break;
 		default:
 			break;
@@ -190,7 +211,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 			break;
 		case StlAllocUseCallStackHeap:
 		case StlAllocUseTlsHeap:
-			hHeap = g_hHeapDetourData;
+			hHeap = HeapHolder::_instance.g_hHeapDetourData;
 			break;
 		default:
 			break;

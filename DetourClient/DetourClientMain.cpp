@@ -24,8 +24,17 @@ DWORD g_dwMainThread;
 
 void CreateComObject();
 
-// create a heap that stores our private data: MyTlsData and Call stacks
-HANDLE g_hHeapDetourData = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 0);
+HeapHolder HeapHolder::_instance;
+
+int MyTlsData::g_tlsIndex;
+CComAutoCriticalSection MyTlsData::g_tlsCritSect;
+bool volatile MyTlsData::g_IsCreatingTlsData;
+long MyTlsData::g_numTlsInstances;
+
+#if _DEBUG
+int MyTlsData::_tlsSerialNo;
+#endif _DEBUG
+
 
 typedef unordered_map < DWORD, MyTlsData *, hash<DWORD>, equal_to<DWORD>, MySTLAlloc<pair<DWORD, MyTlsData *>, StlAllocUseTlsHeap>> mapThreadIdToTls;
 // must be ptr to MyTlsData, because that's what's put in TlsSetValue and can't be moved around in memory
@@ -156,14 +165,6 @@ MyTlsData::~MyTlsData()
 	InterlockedDecrement(&g_numTlsInstances);
 }
 
-int MyTlsData::g_tlsIndex;
-CComAutoCriticalSection MyTlsData::g_tlsCritSect;
-bool volatile MyTlsData::g_IsCreatingTlsData;
-long MyTlsData::g_numTlsInstances;
-
-#if _DEBUG
-int MyTlsData::_tlsSerialNo;
-#endif _DEBUG
 
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 {
