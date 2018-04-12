@@ -23,9 +23,7 @@ vector<HeapSizeData> g_heapAllocSizes;
 CComAutoCriticalSection g_critSectHeapAlloc;
 
 
-typedef std::vector<PVOID
-	, MySTLAlloc<PVOID, StlAllocUseCallStackHeap>
-> vecFrames;
+typedef std::vector<PVOID, MySTLAlloc<PVOID, StlAllocUseCallStackHeap>> vecFrames;
 
 // Collects the callstack and calculates the stack hash
 // represents a single call stack and how often the identical stack occurs
@@ -198,25 +196,27 @@ void UninitCollectStacks()
 	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] == 0, L"Should be leakless");
 
 
-	// now uninit the Tls map
-	// create an allocator type from the mapThreadIdToTls allocator
-	using myTlsAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
-	// create an instance of the allocator
-	mapThreadIdToTls::allocator_type  allocTls_Type;
-	myTlsAllocator allocTls(allocTls_Type);
-
-	for (auto &item : *g_pmapThreadIdToTls)
+	if (g_pmapThreadIdToTls != nullptr)
 	{
-		item.second->~MyTlsData();
-		allocTls.deallocate((BYTE *)item.second, sizeof(*item.second));
+		// now uninit the Tls map
+		// create an allocator type from the mapThreadIdToTls allocator
+		using myTlsAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
+		// create an instance of the allocator
+		mapThreadIdToTls::allocator_type  allocTls_Type;
+		myTlsAllocator allocTls(allocTls_Type);
+
+		for (auto &item : *g_pmapThreadIdToTls)
+		{
+			item.second->~MyTlsData();
+			allocTls.deallocate((BYTE *)item.second, sizeof(*item.second));
+		}
+		g_pmapThreadIdToTls->clear();
+		_ASSERT_EXPR(MyTlsData::g_numTlsInstances == 0, L"tls instance leak");
+
+		g_pmapThreadIdToTls->~mapThreadIdToTls();
+		allocTls.deallocate((BYTE *)g_pmapThreadIdToTls, sizeof(mapThreadIdToTls));
+		g_pmapThreadIdToTls = nullptr;
 	}
-	g_pmapThreadIdToTls->clear();
-	_ASSERT_EXPR(MyTlsData::g_numTlsInstances == 0, L"tls instance leak");
-
-	g_pmapThreadIdToTls->~mapThreadIdToTls();
-	allocTls.deallocate((BYTE *)g_pmapThreadIdToTls, sizeof(mapThreadIdToTls));
-	g_pmapThreadIdToTls = nullptr;
-
 	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseTlsHeap] == 0, L"tls instance mem leak");
 
 

@@ -43,13 +43,9 @@ bool MyTlsData::DllMain(ULONG ulReason)
 	{
 	case DLL_PROCESS_ATTACH:
 		g_tlsIndex = TlsAlloc();
-		//GetTlsData(); // create the TLS data for this thread
 		break;
-
 	case DLL_THREAD_ATTACH:
-		//GetTlsData(); // create the TLS data for this thread
 		break;
-
 	case DLL_PROCESS_DETACH:
 	{
 		TlsFree(g_tlsIndex);
@@ -88,7 +84,7 @@ bool MyTlsData::DllMain(ULONG ulReason)
 MyTlsData* MyTlsData::GetTlsData()
 {
 	auto pMyTlsData = (MyTlsData *)TlsGetValue(g_tlsIndex);
-	if (pMyTlsData == nullptr)
+	if (pMyTlsData == nullptr && g_pmapThreadIdToTls != nullptr)
 	{
 		CComCritSecLock<decltype(g_tlsCritSect)> lock(g_tlsCritSect);
 		if (!g_IsCreatingTlsData)
@@ -159,7 +155,7 @@ MyTlsData::~MyTlsData()
 }
 
 
-PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
+PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 {
 #if _DEBUG
 	static int recurcount = 0;
@@ -168,18 +164,10 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 		//		_asm int 3
 	}
 #endif _DEBUG
-	bool fDidCollectStack = false;
 	PVOID pMem = nullptr;
 	auto pMyTlsData = MyTlsData::GetTlsData();
-	if (pMyTlsData == nullptr)
+	if (pMyTlsData != nullptr)
 	{
-		pMem = Real_RtlAllocateHeap(hHeap, dwFlags, size);
-	}
-	else
-		//    if (size > g_HeapAllocSizeMinValue)
-	{
-
-
 		/*
 		// heapalloc is called when initializing a new thread, so we can't use TLS until it's been initialized, so we bailout
 
@@ -192,48 +180,42 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 		ntdll.dll!LdrpInitialize(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 1403	C	Symbols loaded.
 		ntdll.dll!LdrInitializeThunk(_CONTEXT * UserContext, void * NtdllBaseAddress) Line 75	C	Symbols loaded.
 		*/
-		if (!pMyTlsData->_fIsInRtlAllocHeap) // this is the more expensive thread local check
+		if (!pMyTlsData->_fIsInRtlAllocHeap)
 		{
 			pMyTlsData->_fIsInRtlAllocHeap = true;
-			pMem = Real_RtlAllocateHeap(hHeap, dwFlags, size);
-			if (size < g_HeapAllocSizeMinValue)
+			bool fDidCollectStack = false;
+			// we search through all but the last entry (end() -1) which is used to store any stacks of allocations > g_HeapAllocSizeMinValue
+			auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end() - 1, [size](HeapSizeData data)
 			{
-				auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [size](HeapSizeData data)
+				if (data._nSize == size)
 				{
-					if (data._nSize == size)
-					{
-						return true;
-					}
-					return false;
-				});
-				if (it != g_heapAllocSizes.end())
+					return true;
+				}
+				return false;
+			});
+			if (it != g_heapAllocSizes.end())
+			{
+				if (it->_nSize == size || 
+					size >= g_HeapAllocSizeMinValue) // these are huge allocations larger than e.g. 10M. We always try to collect stack
 				{
-					if ((*it)._nThreshold == 0)
+					if (it->_nThreshold == 0)
 					{
 						fDidCollectStack = CollectStack(StackTypeHeapAlloc,/*stackSubType*/ (DWORD)size, /*extra data*/NULL, /*numFramesToSkip*/2);
 						if (fDidCollectStack)
 						{
-							InterlockedIncrement(&(*it)._nStacksCollected);
+							InterlockedIncrement(&it->_nStacksCollected);
 						}
 					}
 					else
 					{
-						InterlockedDecrement(&(*it)._nThreshold);
+						InterlockedDecrement(&it->_nThreshold);
 					}
 				}
 			}
-			else
-			{
-				fDidCollectStack = CollectStack(StackTypeHeapAlloc,/*stackSubType*/ (DWORD)size, /*extra data*/NULL, /*numFramesToSkip*/1);
-			}
-
 			pMyTlsData->_fIsInRtlAllocHeap = false;
 		}
-		else
-		{
-			pMem = Real_RtlAllocateHeap(hHeap, dwFlags, size);
-		}
 	}
+	pMem = Real_RtlAllocateHeap(hHeapHandle, dwFlags, size);
 #if _DEBUG
 	recurcount--;
 #endif _DEBUG
@@ -561,7 +543,7 @@ void DoLotsOfThreads()
 		for (int iThread = 0; iThread < NUMTHREADS; iThread++)
 		{
 			hThreads[iThread] = CreateThread(/*LPSECURITY_ATTRIBUTES=*/NULL,
-				/*dwStackSize=*/ 1024*256,
+				/*dwStackSize=*/ 1024 * 256,
 				&ThreadRoutine,
 				/* lpThreadParameter*/(PVOID)(INT_PTR)iThread,
 				/*dwCreateFlags*/ 0, /// CREATE_SUSPENDED
@@ -588,7 +570,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 		{
 			shared_ptr<MyTlsData> pp = allocate_shared<MyTlsData, MySTLAlloc<MyTlsData, StlAllocUseTlsHeap>>(alloc);
 		}
-		mymap[1]= allocate_shared<MyTlsData, MySTLAlloc<MyTlsData, StlAllocUseTlsHeap>>(alloc);
+		mymap[1] = allocate_shared<MyTlsData, MySTLAlloc<MyTlsData, StlAllocUseTlsHeap>>(alloc);
 	}
 	{
 		/*
@@ -599,12 +581,12 @@ CLINKAGE void EXPORT StartVisualStudio()
 		mapThreadIdTls::allocator_type alloc;
 		{
 			shared_ptr<unique_ptr<MyTlsData>> ptr = allocate_shared<unique_ptr<MyTlsData>, MySTLAlloc<unique_ptr<MyTlsData>, StlAllocUseTlsHeap>>(alloc);
-			
+
 		}
 		*/
 	}
 	{
-		
+
 		mapThreadIdToTls mymap;
 		// create an allocator type for BYTE from the same allocator at the map
 		using myByteAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
@@ -657,6 +639,8 @@ CLINKAGE void EXPORT StartVisualStudio()
 		g_heapAllocSizes.push_back(HeapSizeData(heapSize, heapThresh));
 
 	});
+	// add one more at the end for any allocation > the min threshold
+	g_heapAllocSizes.push_back(HeapSizeData(g_HeapAllocSizeMinValue, 0));
 
 	SIZE_T sizeAlloc = 72;
 	auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [sizeAlloc](HeapSizeData data)
