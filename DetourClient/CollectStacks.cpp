@@ -9,7 +9,7 @@ using namespace std;
 // these are settable by remote settings
 WCHAR * g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
 int g_NumFramesTocapture = 20;
-SIZE_T g_HeapAllocSizeMinValue = 0;// 1048576;
+int g_HeapAllocSizeMinValue = 0;// 1048576;
 long g_MyStlAllocLimit = 65536 * 1;
 
 
@@ -345,7 +345,6 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 	bool fDidCollectStack = false;
 	try
 	{
-		CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
 		switch (stackType)
 		{
 		case StackTypeHeapAlloc:
@@ -359,7 +358,8 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		}
 		// We want to use the size as the key: see if we've seen this key before
 		mapKey key(stackSubType);
-		auto res = g_pmapStacksByStackType[stackType]->find(key);
+        CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
+        auto res = g_pmapStacksByStackType[stackType]->find(key);
 		if (res == g_pmapStacksByStackType[stackType]->end())
 		{
 			if (!g_MyStlAllocStats._fReachedMemLimit)
@@ -387,6 +387,54 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		if (g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] >= g_MyStlAllocLimit)
 		{
 			g_MyStlAllocStats._fReachedMemLimit = true;
+
+            /*
+            Sending telemetry can cause:
+            clr.dll!MdaXmlMessage::SendDebugEvent() Line 929	C++
+            clr.dll!MdaXmlMessage::SendEvent() Line 806	C++
+            clr.dll!MdaXmlMessage::SendMessage() Line 1027	C++
+            clr.dll!MdaXmlMessage::SendMessagef(int resourceID=6440, ...) Line 958	C++
+            clr.dll!MdaReentrancy::ReportViolation() Line 1918	C++
+            clr.dll!HasIllegalReentrancyRare() Line 13510	C++
+            0167d04d()	Unknown
+            [Frames below may be incorrect and/or missing]
+            msenv.dll!CGlobalServiceProvider::IsAsyncService(const _GUID & serviceId={...}) Line 1959	C++
+            msenv.dll!CGlobalServiceProvider::QueryServiceInternal(bool failIfPackageNotLoaded=false, const _GUID & serviceId={...}, const _GUID & serviceInterface={...}, void * * ppvObj=0x010fd6e8) Line 1875	C++
+            msenv.dll!CGlobalServiceProvider::QueryService(const _GUID & rsid={...}, const _GUID & riid={...}, void * * ppvObj=0x010fd6e8) Line 1837	C++
+            vslog.dll!CVsComModule::QueryService(const _GUID & rsid={...}, const _GUID & riid={...}, void * * ppvObj=0x010fd6e8) Line 51	C++
+            >	vslog.dll!VSResponsiveness::CollectStack(VSResponsiveness::StackType stackSubType, unsigned long) Line 283	C++
+            vslog.dll!VSResponsiveness::Detours::DetourRtlAllocateHeap(void * hHeapHandle=0x013f0000, unsigned long dwFlags=0, unsigned long size=82) Line 641	C++
+            clr.dll!RtlAllocateHeap(void * HeapHandle=0x013f0000, unsigned long Flags=0, unsigned long Size=74) Line 203	C++
+            clr.dll!IsolationAllocateStringRoutine(unsigned long ByteCount=74) Line 34	C++
+            clr.dll!RtlAllocateLUnicodeString(unsigned long Bytes=74, _LUNICODE_STRING * String=0x06bab7c0) Line 258	C++
+            clr.dll!RtlDuplicateLUnicodeString(const _LUNICODE_STRING * Source=0x7680760b, _LUNICODE_STRING * Destination=0x01440b54) Line 427	C++
+            clr.dll!id_AssignInternalAttributeFromPublicAttribute<Windows::Isolation::Rtl::_IDENTITY_ATTRIBUTE>(_RTL_ALLOCATION_LIST * AllocationList=0x00000000, const Windows::Isolation::Rtl::_IDENTITY_ATTRIBUTE & Attribute={...}, CInternalIdentityAttribute & NewInternalAttribute={...}) Line 417	C++
+            */
+            //CComPtr<IVsTaskSchedulerService> pTaskSchedulerService;
+            //if (SUCCEEDED(_Module.QueryService(IID_SVsTaskSchedulerService, IID_PPV_ARGS(&pTaskSchedulerService))))
+            //{
+            //    CComPtr<IVsTask> spTask;
+            //    HRESULT hr = VsTaskLibraryHelper::CreateAndStartTask(
+            //        VSTC_UITHREAD_BACKGROUND_PRIORITY,
+            //        VSTCRO_None,
+            //        []() -> HRESULT
+            //    {
+            //        CComPtr<IVsTelemetryEvent> spStacksMemoryFull;
+            //        if (SUCCEEDED(TelemetryHelper::CreateEventW(L"vs/core/detours/collectstacks/StackMemFull", &spStacksMemoryFull)))
+            //        {
+            //            spStacksMemoryFull->SetLongProperty(L"vs.core.detours.collectstacks.StackMemFull.limit", g_MyStlAllocLimit);
+            //            spStacksMemoryFull->SetLongProperty(L"vs.core.detours.collectstacks.StackMemFull.TotalAlloc", g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap]);
+            //            TelemetryHelper::PostEvent(spStacksMemoryFull);
+            //        }
+
+            //        return S_OK;
+            //    },
+            //        pTaskSchedulerService,
+            //        L"DetourCollectStack",
+            //        &spTask);
+
+            //}
+
 		}
 	}
 	return fDidCollectStack;

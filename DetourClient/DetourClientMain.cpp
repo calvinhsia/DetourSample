@@ -196,7 +196,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 			if (it != g_heapAllocSizes.end())
 			{
 				if (it->_nSize == size || 
-					size >= g_HeapAllocSizeMinValue) // these are huge allocations larger than e.g. 10M. We always try to collect stack
+					size >= (SIZE_T)g_HeapAllocSizeMinValue) // these are huge allocations larger than e.g. 10M. We always try to collect stack
 				{
 					if (it->_nThreshold == 0)
 					{
