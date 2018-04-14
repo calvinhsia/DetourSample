@@ -184,16 +184,18 @@ void UninitCollectStacks()
 	mapStacksByStackType::allocator_type alloc_type;
 	myByteAllocator allocator(alloc_type);
 
+    CComCritSecLock<decltype(g_critSectHeapAlloc)> lock(g_critSectHeapAlloc);
 	for (int i = 0; i < StackTypeMax; i++)
 	{
 		if (g_pmapStacksByStackType[i] != nullptr)
 		{
 			g_pmapStacksByStackType[i]->~mapStacksByStackType(); // invoke dtor
 			allocator.deallocate(g_pmapStacksByStackType[i], 1); // delete the placement new
+            g_pmapStacksByStackType[i] = nullptr;
 		}
 	}
 	//	MessageBoxA(0, "about to Heap destroy", "", 0);
-	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] == 0, L"Should be leakless");
+    VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] == 0, "Should be leakless");
 
 
 	if (g_pmapThreadIdToTls != nullptr)
@@ -211,21 +213,22 @@ void UninitCollectStacks()
 			allocTls.deallocate((BYTE *)item.second, sizeof(*item.second));
 		}
 		g_pmapThreadIdToTls->clear();
-		_ASSERT_EXPR(MyTlsData::g_numTlsInstances == 0, L"tls instance leak");
+        VSASSERT(MyTlsData::g_numTlsInstances == 0, "tls instance leak");
 
 		g_pmapThreadIdToTls->~mapThreadIdToTls();
 		allocTls.deallocate((BYTE *)g_pmapThreadIdToTls, sizeof(mapThreadIdToTls));
 		g_pmapThreadIdToTls = nullptr;
 	}
-	_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseTlsHeap] == 0, L"tls instance mem leak");
+    VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseTlsHeap] == 0, "tls instance mem leak");
 
 
 	// now destroy the heap
 	for (int i = 0; i < StackTypeHeapAlloc; i++)
 	{
-		_ASSERT_EXPR(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[i] == 0, L"Heap leak");
+        VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[i] == 0, "Heap leak");
 	}
 	HeapDestroy(g_hHeapDetourData);
+    g_hHeapDetourData = nullptr;
 
 }
 
@@ -334,8 +337,8 @@ LONGLONG GetNumStacksCollected()
 
 	*/
 
-	_ASSERT_EXPR(g_MyStlAllocStats._fReachedMemLimit || g_MyStlAllocStats._nTotNumHeapAllocs == nTotCnt, L"Total # allocs shouuld match");
-	_ASSERT_EXPR(g_MyStlAllocStats._fReachedMemLimit || g_MyStlAllocStats._TotNumBytesHeapAlloc == nTotSize, L"Total size allocs should match");
+    VSASSERT(g_MyStlAllocStats._fReachedMemLimit || g_MyStlAllocStats._nTotNumHeapAllocs == nTotCnt, "Total # allocs shouuld match");
+    VSASSERT(g_MyStlAllocStats._fReachedMemLimit || g_MyStlAllocStats._TotNumBytesHeapAlloc == nTotSize, "Total size allocs should match");
 	return nTotCnt;
 }
 
@@ -358,7 +361,7 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		}
 		// We want to use the size as the key: see if we've seen this key before
 		mapKey key(stackSubType);
-        CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
+        CComCritSecLock<decltype(g_critSectHeapAlloc)> lock(g_critSectHeapAlloc);
         auto res = g_pmapStacksByStackType[stackType]->find(key);
 		if (res == g_pmapStacksByStackType[stackType]->end())
 		{

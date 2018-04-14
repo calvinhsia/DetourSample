@@ -2,7 +2,7 @@
 #include "atlcom.h"
 
 #if _DEBUG
-#define _ITERATOR_DEBUG_LEVEL 0 // https://developercommunity.visualstudio.com/content/problem/140200/c-stl-stdvector-constructor-declared-with-noexcept.html
+//#define _ITERATOR_DEBUG_LEVEL 0 // https://developercommunity.visualstudio.com/content/problem/140200/c-stl-stdvector-constructor-declared-with-noexcept.html
 #endif _DEBUG
 
 #include <string>

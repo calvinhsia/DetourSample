@@ -60,7 +60,7 @@ bool MyTlsData::DllMain(ULONG ulReason)
 			if (res == g_pmapThreadIdToTls->end())
 			{
 				// a thread is exiting for which we never created a Tls struct
-				_ASSERT_EXPR(TlsGetValue(g_tlsIndex) == 0, L"how can there be TLS value with no TLS data?");
+				VSASSERT(TlsGetValue(g_tlsIndex) == 0, "how can there be TLS value with no TLS data?");
 			}
 			else
 			{
@@ -112,7 +112,7 @@ MyTlsData* MyTlsData::GetTlsData()
 			auto res = g_pmapThreadIdToTls->find(GetCurrentThreadId());
 			if (res != g_pmapThreadIdToTls->end())
 			{
-				_ASSERT_EXPR(((MyTlsData *)TlsGetValue(g_tlsIndex))->_dwThreadId == GetCurrentThreadId(), L"tls already created?");
+				VSASSERT(((MyTlsData *)TlsGetValue(g_tlsIndex))->_dwThreadId == GetCurrentThreadId(), "tls already created?");
 			}
 			else
 			{
@@ -126,11 +126,11 @@ MyTlsData* MyTlsData::GetTlsData()
 				pMyTlsData = new (pmem) MyTlsData();
 				if (TlsGetValue(g_tlsIndex) != nullptr)
 				{
-					_ASSERT_EXPR(TlsGetValue(g_tlsIndex) == nullptr, L"tlsvalue should be 0");
+					VSASSERT(TlsGetValue(g_tlsIndex) == nullptr, "tlsvalue should be 0");
 				}
 				(*g_pmapThreadIdToTls)[GetCurrentThreadId()] = pmem;
 				auto ret = TlsSetValue(g_tlsIndex, pMyTlsData);
-				_ASSERT_EXPR(ret, L"Failed to set tls value");
+				VSASSERT(ret, "Failed to set tls value");
 
 			}
 			g_IsCreatingTlsData = false;
@@ -421,35 +421,35 @@ void HookInMyOwnVersion(BOOL fHook)
 	//	g_mapStacks = new (malloc(sizeof(mapStacks)) mapStacks(MySTLAlloc < pair<const SIZE_T, vecStacks>(GetProcessHeap());
 
 	auto fnRedirectDetour = reinterpret_cast<pfnRedirectDetour>(GetProcAddress(hmDevenv, REDIRECTDETOUR));
-	_ASSERT_EXPR(fnRedirectDetour != nullptr, L"Failed to get RedirectDetour");
+	VSASSERT(fnRedirectDetour != nullptr, "Failed to get RedirectDetour");
 
 	if (fHook)
 	{
 		if (fnRedirectDetour(DTF_MessageBoxA, MyMessageBoxA, (PVOID *)&g_real_MessageBoxA) != S_OK)
 		{
-			_ASSERT_EXPR(false, L"Failed to redirect detour");
+			VSASSERT(false, "Failed to redirect detour");
 		}
 		if (fnRedirectDetour(DTF_GetModuleHandleA, MyGetModuleHandleA, (PVOID *)&g_real_GetModuleHandleA) != S_OK)
 		{
-			_ASSERT_EXPR(false, L"Failed to redirect detour");
+			VSASSERT(false, "Failed to redirect detour");
 		}
 		if (fnRedirectDetour(DTF_GetModuleFileNameA, MyGetModuleFileNameA, (PVOID *)&g_real_GetModuleFileNameA) != S_OK)
 		{
-			_ASSERT_EXPR(false, L"Failed to redirect detour");
+			VSASSERT(false, "Failed to redirect detour");
 		}
 		auto res = fnRedirectDetour(DTF_RtlAllocateHeap, MyRtlAllocateHeap, (PVOID *)&Real_RtlAllocateHeap);
-		_ASSERT_EXPR(res == S_OK, L"Redirecting detour to allocate heap");
+		VSASSERT(res == S_OK, "Redirecting detour to allocate heap");
 
 		res = fnRedirectDetour(DTF_HeapReAlloc, MyHeapReAlloc, (PVOID *)&Real_HeapReAlloc);
-		_ASSERT_EXPR(res == S_OK, L"Redirecting detour to heapReAlloc");
+		VSASSERT(res == S_OK, "Redirecting detour to heapReAlloc");
 
 
 		res = fnRedirectDetour(DTF_RtlFreeHeap, MyRtlFreeHeap, (PVOID *)&Real_RtlFreeHeap);
-		_ASSERT_EXPR(res == S_OK, L"Redirecting detour to free heap");
+		VSASSERT(res == S_OK, "Redirecting detour to free heap");
 
 #ifndef _WIN64
 		res = fnRedirectDetour(DTF_NdrClientCall2, DetourNdrClientCall2, (PVOID*)&Real_NdrClientCall2);
-		_ASSERT_EXPR(res == S_OK, L"Redirecting detour to MyNdrClientCall2");
+		VSASSERT(res == S_OK, "Redirecting detour to MyNdrClientCall2");
 #endif _WIN64
 
 	}
@@ -457,33 +457,33 @@ void HookInMyOwnVersion(BOOL fHook)
 	{
 		if (fnRedirectDetour(DTF_MessageBoxA, nullptr, nullptr) != S_OK)
 		{
-			_ASSERT_EXPR(false, L"Failed to redirect detour");
+			VSASSERT(false, "Failed to redirect detour");
 		}
 		if (fnRedirectDetour(DTF_GetModuleHandleA, nullptr, nullptr) != S_OK)
 		{
-			_ASSERT_EXPR(false, L"Failed to redirect detour");
+			VSASSERT(false, "Failed to redirect detour");
 		}
 		if (fnRedirectDetour(DTF_GetModuleFileNameA, nullptr, nullptr) != S_OK)
 		{
-			_ASSERT_EXPR(false, L"Failed to redirect detour");
+			VSASSERT(false, "Failed to redirect detour");
 		}
 
 		// when undetouring heap, be careful because HeapAlloc can call HeapAlloc
 		if (fnRedirectDetour(DTF_RtlAllocateHeap, nullptr, nullptr) != S_OK)
 		{
-			_ASSERT_EXPR(false, L"Failed to redirect detour");
+			VSASSERT(false, "Failed to redirect detour");
 		}
 		if (fnRedirectDetour(DTF_HeapReAlloc, nullptr, nullptr) != S_OK)
 		{
-			_ASSERT_EXPR(false, L"Failed to redirect detour");
+			VSASSERT(false, "Failed to redirect detour");
 		}
 		if (fnRedirectDetour(DTF_RtlFreeHeap, nullptr, nullptr) != S_OK)
 		{
-			_ASSERT_EXPR(false, L"Failed to redirect detour");
+			VSASSERT(false, "Failed to redirect detour");
 		}
 		if (fnRedirectDetour(DTF_NdrClientCall2, nullptr, nullptr) != S_OK)
 		{
-			_ASSERT_EXPR(false, L"Failed to redirect detour");
+			VSASSERT(false, "Failed to redirect detour");
 		}
 	}
 }
@@ -714,8 +714,8 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 	UninitCollectStacks();
 
-	_ASSERT_EXPR(g_MyStlAllocStats._nTotNumHeapAllocs > 400 && g_MyStlAllocStats._TotNumBytesHeapAlloc > 3000, L"#expected > 400 allocations of >3000 bytes");
-	_ASSERT_EXPR(nStacksCollected > 50, L"#expected > 50 stacks collected");
+	VSASSERT(g_MyStlAllocStats._nTotNumHeapAllocs > 400 && g_MyStlAllocStats._TotNumBytesHeapAlloc > 3000, "#expected > 400 allocations of >3000 bytes");
+	VSASSERT(nStacksCollected > 50, "#expected > 50 stacks collected");
 
 }
 

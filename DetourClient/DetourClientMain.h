@@ -3,7 +3,7 @@
 // When creating an unordered_map a vector is created, calling "explicit vector(const _Alloc& _Al) _NOEXCEPT", but it allocates which can throw:
 // https://developercommunity.visualstudio.com/content/problem/140200/c-stl-stdvector-constructor-declared-with-noexcept.html
 #if _DEBUG
-#define _ITERATOR_DEBUG_LEVEL 0
+//#define _ITERATOR_DEBUG_LEVEL 0
 #endif _DEBUG
 #include <string>
 #include <stack>
@@ -12,6 +12,8 @@
 #include <memory>
 #include <functional>
 #include <algorithm>
+
+#define VSASSERT(a,b) _ASSERT_EXPR(a,L##b)
 
 // the different types of callstacks we collect
 typedef enum {
