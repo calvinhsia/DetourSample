@@ -48,7 +48,8 @@ bool MyTlsData::DllMain(ULONG ulReason)
 		break;
 	case DLL_PROCESS_DETACH:
 	{
-		TlsFree(g_tlsIndex);
+        UninitCollectStacks();
+        TlsFree(g_tlsIndex);
 	}
 	break;
 	case DLL_THREAD_DETACH:
@@ -712,7 +713,6 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 	MessageBoxA(0, &buff[0], "Calling the WinApi version of MessageboxA", 0);
 
-	UninitCollectStacks();
 
 	VSASSERT(g_MyStlAllocStats._nTotNumHeapAllocs > 400 && g_MyStlAllocStats._TotNumBytesHeapAlloc > 3000, "#expected > 400 allocations of >3000 bytes");
 	VSASSERT(nStacksCollected > 50, "#expected > 50 stacks collected");

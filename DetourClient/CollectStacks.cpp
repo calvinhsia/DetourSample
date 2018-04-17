@@ -227,8 +227,11 @@ void UninitCollectStacks()
 	{
         VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[i] == 0, "Heap leak");
 	}
-	HeapDestroy(g_hHeapDetourData);
-    g_hHeapDetourData = nullptr;
+    if (g_hHeapDetourData != nullptr)
+    {
+        HeapDestroy(g_hHeapDetourData);
+        g_hHeapDetourData = nullptr;
+    }
 
 }
 
