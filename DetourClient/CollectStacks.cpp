@@ -354,6 +354,8 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		switch (stackType)
 		{
 		case StackTypeHeapAlloc:
+			//VsEtwLoggingWriteEx("CollectStackHeapAlloc", VsEtwKeyword_Ide, VsEtwLevel_Verbose,
+			//	TraceLoggingInt32(stackSubType, "AllocSize"));
 			g_MyStlAllocStats._nTotNumHeapAllocs++;
 			g_MyStlAllocStats._TotNumBytesHeapAlloc += (int)stackSubType;
 			break;
