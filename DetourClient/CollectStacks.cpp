@@ -7,7 +7,7 @@
 using namespace std;
 
 // these are settable by remote settings
-WCHAR * g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
+WCHAR* g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
 int g_NumFramesTocapture = 20;
 int g_HeapAllocSizeMinValue = 0;// 1048576;
 long g_MyStlAllocLimit = 65536 * 1;
@@ -29,24 +29,108 @@ typedef std::vector<PVOID, MySTLAlloc<PVOID, StlAllocUseCallStackHeap>> vecFrame
 // represents a single call stack and how often the identical stack occurs
 struct CallStack
 {
-	CallStack(int NumFramesToSkip) : _nOccur(1)
+	CallStack(int NumFramesToSkip) noexcept : _nOccur(1), _stackHash(0)
 	{
+		int nFrames = 0;
 		_vecFrames.resize(g_NumFramesTocapture);
-		int nFrames = RtlCaptureStackBackTrace(
-			/*FramesToSkip*/ NumFramesToSkip,
-			/*FramesToCapture*/ g_NumFramesTocapture,
+		//*
+		CONTEXT context = { 0 };
+		RtlCaptureContext(&context);
+		nFrames = GetStack(
+			context,
+			NumFramesToSkip,
+			g_NumFramesTocapture,
 			&_vecFrames[0],
 			&_stackHash
 		);
+		/*/
+		nFrames = RtlCaptureStackBackTrace(
+			NumFramesToSkip,
+			g_NumFramesTocapture,
+			&_vecFrames[0],
+			&_stackHash
+		);
+		//*/
 		_vecFrames.resize(nFrames);
 	}
-	CallStack(CallStack&& other) // move constructor
+	CallStack(CallStack&& other) noexcept// move constructor
 	{
 		_stackHash = other._stackHash;
 		_nOccur = other._nOccur;
 		_vecFrames = std::move(other._vecFrames);
 	}
-	CallStack& operator = (CallStack&& other) // move assignment
+	struct EBP_STACK_FRAME
+	{
+		struct EBP_STACK_FRAME* m_Next;
+		PVOID m_ReturnAddress;
+	};
+
+	inline bool IsValidEBP(_In_ EBP_STACK_FRAME* pebpFrame, _In_ PNT_TIB pTIB)
+	{
+		// Check for stack limits. A few things to note:
+		//	- StackBase is the first address following the memory used for the stack (i.e. the dword at StackBase is not part of the stack).
+		//  - EBP_STACK_FRAME is an 8-byte stucture (contains the EBP and return address) so in order for the EBP to be valid
+		//    it needs to be 8 bytes less than the StackBase.
+
+		if (pebpFrame == nullptr || pebpFrame->m_ReturnAddress == nullptr || static_cast<void*>(pebpFrame) < pTIB->StackLimit ||
+			static_cast<void*>(pebpFrame) > static_cast<void*>(static_cast<char*>(pTIB->StackBase) - sizeof(EBP_STACK_FRAME)))
+		{
+			return false;
+		}
+
+		// If we have a too small address, we are probably bad
+		if (reinterpret_cast<PVOID>(pebpFrame) < PVOID(0x10000))
+		{
+			return false;
+		}
+
+		return true;
+	}
+	int GetStack(
+		_In_ CONTEXT context,
+		_In_ int NumFramesToSkip,
+		_In_ int NumFramesToCapture,
+		__out_ecount_part(NumFramesToCapture, return) PVOID* pFrames,
+		_Out_opt_ PULONG pHash)
+	{
+		ULONG hash = 0;
+		int nFrames = 0;
+		try
+		{
+			EBP_STACK_FRAME* currentEBP = static_cast<EBP_STACK_FRAME*>(ULongToPtr(context.Ebp));
+			EBP_STACK_FRAME* lastEBP = nullptr;
+			HANDLE hThread = GetCurrentThread();
+			LDT_ENTRY ldt_Enty;
+			if (GetThreadSelectorEntry(hThread, context.SegFs, &ldt_Enty))
+			{
+				PNT_TIB threadTib = static_cast<PNT_TIB>(((void*)((ldt_Enty.HighWord.Bits.BaseHi << 24) | (ldt_Enty.HighWord.Bits.BaseMid << 16) | ldt_Enty.BaseLow)));
+				while (IsValidEBP(currentEBP, threadTib))
+				{
+					lastEBP = currentEBP;
+					currentEBP = lastEBP->m_Next;
+					nFrames++;
+					if (nFrames > NumFramesToSkip) // if we've skipped the # of frames requested
+					{
+						if (nFrames >= NumFramesToCapture) // if we have filled all the requested frames
+						{
+							break;
+						}
+						pFrames[nFrames - NumFramesToSkip - 1] = currentEBP->m_ReturnAddress;
+						hash += (ULONG)(currentEBP->m_ReturnAddress);
+					}
+				}
+			}
+
+			*pHash = hash;
+
+		}
+		catch (const std::exception&)
+		{
+
+		}
+		return nFrames - NumFramesToSkip;
+	}
+	CallStack& operator = (CallStack&& other) noexcept// move assignment
 	{
 		if (this != &other)
 		{
@@ -76,11 +160,11 @@ struct StacksForStackType
 	{
 		AddNewStack(numFramesToSkip);
 	}
-	StacksForStackType(StacksForStackType&& other) // move constructor
+	StacksForStackType(StacksForStackType&& other) noexcept// move constructor
 	{
 		_stacks = std::move(other._stacks);
 	}
-	StacksForStackType & operator = (StacksForStackType&& other) // move assignment
+	StacksForStackType& operator = (StacksForStackType&& other) noexcept// move assignment
 	{
 		if (this != &other)
 		{
@@ -120,7 +204,7 @@ struct StacksForStackType
 	LONGLONG GetTotalNumStacks()
 	{
 		auto tot = 0l;
-		for (auto &stack : _stacks)
+		for (auto& stack : _stacks)
 		{
 			tot += stack.second._nOccur;
 		}
@@ -142,7 +226,7 @@ typedef std::unordered_map<mapKey, StacksForStackType,
 // map the Size of an alloc to all the stacks that allocated that size.
 // note: if we're looking for all allocs of a specific size (e.g. 1Mb), then no need for a map by size (because all keys will be the same): more efficient to just use a mapStacks
 
-mapStacksByStackType *g_pmapStacksByStackType[StackTypeMax];
+mapStacksByStackType* g_pmapStacksByStackType[StackTypeMax];
 
 StlAllocStats g_MyStlAllocStats;
 
@@ -157,7 +241,7 @@ void InitCollectStacks()
 	// create an instance of the allocator
 	mapThreadIdToTls::allocator_type  allocTls_Type;
 	myTlsAllocator allocTls(allocTls_Type);
-	
+
 	g_pmapThreadIdToTls = new (allocTls.allocate(1)) mapThreadIdToTls();
 
 
@@ -184,18 +268,18 @@ void UninitCollectStacks()
 	mapStacksByStackType::allocator_type alloc_type;
 	myByteAllocator allocator(alloc_type);
 
-    CComCritSecLock<decltype(g_critSectHeapAlloc)> lock(g_critSectHeapAlloc);
+	CComCritSecLock<decltype(g_critSectHeapAlloc)> lock(g_critSectHeapAlloc);
 	for (int i = 0; i < StackTypeMax; i++)
 	{
 		if (g_pmapStacksByStackType[i] != nullptr)
 		{
 			g_pmapStacksByStackType[i]->~mapStacksByStackType(); // invoke dtor
 			allocator.deallocate(g_pmapStacksByStackType[i], 1); // delete the placement new
-            g_pmapStacksByStackType[i] = nullptr;
+			g_pmapStacksByStackType[i] = nullptr;
 		}
 	}
 	//	MessageBoxA(0, "about to Heap destroy", "", 0);
-    VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] == 0, "Should be leakless");
+	VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] == 0, "Should be leakless");
 
 
 	if (g_pmapThreadIdToTls != nullptr)
@@ -207,31 +291,31 @@ void UninitCollectStacks()
 		mapThreadIdToTls::allocator_type  allocTls_Type;
 		myTlsAllocator allocTls(allocTls_Type);
 
-		for (auto &item : *g_pmapThreadIdToTls)
+		for (auto& item : *g_pmapThreadIdToTls)
 		{
 			item.second->~MyTlsData();
-			allocTls.deallocate((BYTE *)item.second, sizeof(*item.second));
+			allocTls.deallocate((BYTE*)item.second, sizeof(*item.second));
 		}
 		g_pmapThreadIdToTls->clear();
-        VSASSERT(MyTlsData::g_numTlsInstances == 0, "tls instance leak");
+		VSASSERT(MyTlsData::g_numTlsInstances == 0, "tls instance leak");
 
 		g_pmapThreadIdToTls->~mapThreadIdToTls();
-		allocTls.deallocate((BYTE *)g_pmapThreadIdToTls, sizeof(mapThreadIdToTls));
+		allocTls.deallocate((BYTE*)g_pmapThreadIdToTls, sizeof(mapThreadIdToTls));
 		g_pmapThreadIdToTls = nullptr;
 	}
-    VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseTlsHeap] == 0, "tls instance mem leak");
+	VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseTlsHeap] == 0, "tls instance mem leak");
 
 
 	// now destroy the heap
-	for (int i = 0; i < StackTypeHeapAlloc; i++)
+	for (int i = 0; i < StackTypeMax; i++)
 	{
-        VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[i] == 0, "Heap leak");
+		VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[i] == 0, "Heap leak");
 	}
-    if (g_hHeapDetourData != nullptr)
-    {
-        HeapDestroy(g_hHeapDetourData);
-        g_hHeapDetourData = nullptr;
-    }
+	if (g_hHeapDetourData != nullptr)
+	{
+		HeapDestroy(g_hHeapDetourData);
+		g_hHeapDetourData = nullptr;
+	}
 
 }
 
@@ -283,19 +367,19 @@ LONGLONG GetNumStacksCollected()
 	LONGLONG nRpcStacks[2] = { 0 };
 	for (int i = 0; i < StackTypeMax; i++)
 	{
-		for (auto &entry : *g_pmapStacksByStackType[i])
+		for (auto& entry : *g_pmapStacksByStackType[i])
 		{
 			auto key = entry.first;
 			switch (i)
 			{
 			case StackTypeHeapAlloc:
 			{
-				auto &stackBySize = entry.second;
+				auto& stackBySize = entry.second;
 				auto sizeAlloc = key;
 				auto cnt = stackBySize.GetTotalNumStacks(); // to see the output, use a tracepoint (breakpoint action): output: sizeAlloc={sizeAlloc} cnt={cnt}
 				nTotSize += sizeAlloc * cnt;
 				nTotCnt += cnt;
-				for (auto &stk : entry.second._stacks)
+				for (auto& stk : entry.second._stacks)
 				{
 					nUniqueStacks++;
 					for (auto frm : stk.second._vecFrames)
@@ -340,8 +424,8 @@ LONGLONG GetNumStacksCollected()
 
 	*/
 
-    VSASSERT(g_MyStlAllocStats._fReachedMemLimit || g_MyStlAllocStats._nTotNumHeapAllocs == nTotCnt, "Total # allocs shouuld match");
-    VSASSERT(g_MyStlAllocStats._fReachedMemLimit || g_MyStlAllocStats._TotNumBytesHeapAlloc == nTotSize, "Total size allocs should match");
+	VSASSERT(g_MyStlAllocStats._fReachedMemLimit || g_MyStlAllocStats._nTotNumHeapAllocs == nTotCnt, "Total # allocs shouuld match");
+	VSASSERT(g_MyStlAllocStats._fReachedMemLimit || g_MyStlAllocStats._TotNumBytesHeapAlloc == nTotSize, "Total size allocs should match");
 	return nTotCnt;
 }
 
@@ -366,8 +450,8 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		}
 		// We want to use the size as the key: see if we've seen this key before
 		mapKey key(stackSubType);
-        CComCritSecLock<decltype(g_critSectHeapAlloc)> lock(g_critSectHeapAlloc);
-        auto res = g_pmapStacksByStackType[stackType]->find(key);
+		CComCritSecLock<decltype(g_critSectHeapAlloc)> lock(g_critSectHeapAlloc);
+		auto res = g_pmapStacksByStackType[stackType]->find(key);
 		if (res == g_pmapStacksByStackType[stackType]->end())
 		{
 			if (!g_MyStlAllocStats._fReachedMemLimit)
@@ -396,52 +480,52 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		{
 			g_MyStlAllocStats._fReachedMemLimit = true;
 
-            /*
-            Sending telemetry can cause:
-            clr.dll!MdaXmlMessage::SendDebugEvent() Line 929	C++
-            clr.dll!MdaXmlMessage::SendEvent() Line 806	C++
-            clr.dll!MdaXmlMessage::SendMessage() Line 1027	C++
-            clr.dll!MdaXmlMessage::SendMessagef(int resourceID=6440, ...) Line 958	C++
-            clr.dll!MdaReentrancy::ReportViolation() Line 1918	C++
-            clr.dll!HasIllegalReentrancyRare() Line 13510	C++
-            0167d04d()	Unknown
-            [Frames below may be incorrect and/or missing]
-            msenv.dll!CGlobalServiceProvider::IsAsyncService(const _GUID & serviceId={...}) Line 1959	C++
-            msenv.dll!CGlobalServiceProvider::QueryServiceInternal(bool failIfPackageNotLoaded=false, const _GUID & serviceId={...}, const _GUID & serviceInterface={...}, void * * ppvObj=0x010fd6e8) Line 1875	C++
-            msenv.dll!CGlobalServiceProvider::QueryService(const _GUID & rsid={...}, const _GUID & riid={...}, void * * ppvObj=0x010fd6e8) Line 1837	C++
-            vslog.dll!CVsComModule::QueryService(const _GUID & rsid={...}, const _GUID & riid={...}, void * * ppvObj=0x010fd6e8) Line 51	C++
-            >	vslog.dll!VSResponsiveness::CollectStack(VSResponsiveness::StackType stackSubType, unsigned long) Line 283	C++
-            vslog.dll!VSResponsiveness::Detours::DetourRtlAllocateHeap(void * hHeapHandle=0x013f0000, unsigned long dwFlags=0, unsigned long size=82) Line 641	C++
-            clr.dll!RtlAllocateHeap(void * HeapHandle=0x013f0000, unsigned long Flags=0, unsigned long Size=74) Line 203	C++
-            clr.dll!IsolationAllocateStringRoutine(unsigned long ByteCount=74) Line 34	C++
-            clr.dll!RtlAllocateLUnicodeString(unsigned long Bytes=74, _LUNICODE_STRING * String=0x06bab7c0) Line 258	C++
-            clr.dll!RtlDuplicateLUnicodeString(const _LUNICODE_STRING * Source=0x7680760b, _LUNICODE_STRING * Destination=0x01440b54) Line 427	C++
-            clr.dll!id_AssignInternalAttributeFromPublicAttribute<Windows::Isolation::Rtl::_IDENTITY_ATTRIBUTE>(_RTL_ALLOCATION_LIST * AllocationList=0x00000000, const Windows::Isolation::Rtl::_IDENTITY_ATTRIBUTE & Attribute={...}, CInternalIdentityAttribute & NewInternalAttribute={...}) Line 417	C++
-            */
-            //CComPtr<IVsTaskSchedulerService> pTaskSchedulerService;
-            //if (SUCCEEDED(_Module.QueryService(IID_SVsTaskSchedulerService, IID_PPV_ARGS(&pTaskSchedulerService))))
-            //{
-            //    CComPtr<IVsTask> spTask;
-            //    HRESULT hr = VsTaskLibraryHelper::CreateAndStartTask(
-            //        VSTC_UITHREAD_BACKGROUND_PRIORITY,
-            //        VSTCRO_None,
-            //        []() -> HRESULT
-            //    {
-            //        CComPtr<IVsTelemetryEvent> spStacksMemoryFull;
-            //        if (SUCCEEDED(TelemetryHelper::CreateEventW(L"vs/core/detours/collectstacks/StackMemFull", &spStacksMemoryFull)))
-            //        {
-            //            spStacksMemoryFull->SetLongProperty(L"vs.core.detours.collectstacks.StackMemFull.limit", g_MyStlAllocLimit);
-            //            spStacksMemoryFull->SetLongProperty(L"vs.core.detours.collectstacks.StackMemFull.TotalAlloc", g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap]);
-            //            TelemetryHelper::PostEvent(spStacksMemoryFull);
-            //        }
+			/*
+			Sending telemetry can cause:
+			clr.dll!MdaXmlMessage::SendDebugEvent() Line 929	C++
+			clr.dll!MdaXmlMessage::SendEvent() Line 806	C++
+			clr.dll!MdaXmlMessage::SendMessage() Line 1027	C++
+			clr.dll!MdaXmlMessage::SendMessagef(int resourceID=6440, ...) Line 958	C++
+			clr.dll!MdaReentrancy::ReportViolation() Line 1918	C++
+			clr.dll!HasIllegalReentrancyRare() Line 13510	C++
+			0167d04d()	Unknown
+			[Frames below may be incorrect and/or missing]
+			msenv.dll!CGlobalServiceProvider::IsAsyncService(const _GUID & serviceId={...}) Line 1959	C++
+			msenv.dll!CGlobalServiceProvider::QueryServiceInternal(bool failIfPackageNotLoaded=false, const _GUID & serviceId={...}, const _GUID & serviceInterface={...}, void * * ppvObj=0x010fd6e8) Line 1875	C++
+			msenv.dll!CGlobalServiceProvider::QueryService(const _GUID & rsid={...}, const _GUID & riid={...}, void * * ppvObj=0x010fd6e8) Line 1837	C++
+			vslog.dll!CVsComModule::QueryService(const _GUID & rsid={...}, const _GUID & riid={...}, void * * ppvObj=0x010fd6e8) Line 51	C++
+			>	vslog.dll!VSResponsiveness::CollectStack(VSResponsiveness::StackType stackSubType, unsigned long) Line 283	C++
+			vslog.dll!VSResponsiveness::Detours::DetourRtlAllocateHeap(void * hHeapHandle=0x013f0000, unsigned long dwFlags=0, unsigned long size=82) Line 641	C++
+			clr.dll!RtlAllocateHeap(void * HeapHandle=0x013f0000, unsigned long Flags=0, unsigned long Size=74) Line 203	C++
+			clr.dll!IsolationAllocateStringRoutine(unsigned long ByteCount=74) Line 34	C++
+			clr.dll!RtlAllocateLUnicodeString(unsigned long Bytes=74, _LUNICODE_STRING * String=0x06bab7c0) Line 258	C++
+			clr.dll!RtlDuplicateLUnicodeString(const _LUNICODE_STRING * Source=0x7680760b, _LUNICODE_STRING * Destination=0x01440b54) Line 427	C++
+			clr.dll!id_AssignInternalAttributeFromPublicAttribute<Windows::Isolation::Rtl::_IDENTITY_ATTRIBUTE>(_RTL_ALLOCATION_LIST * AllocationList=0x00000000, const Windows::Isolation::Rtl::_IDENTITY_ATTRIBUTE & Attribute={...}, CInternalIdentityAttribute & NewInternalAttribute={...}) Line 417	C++
+			*/
+			//CComPtr<IVsTaskSchedulerService> pTaskSchedulerService;
+			//if (SUCCEEDED(_Module.QueryService(IID_SVsTaskSchedulerService, IID_PPV_ARGS(&pTaskSchedulerService))))
+			//{
+			//    CComPtr<IVsTask> spTask;
+			//    HRESULT hr = VsTaskLibraryHelper::CreateAndStartTask(
+			//        VSTC_UITHREAD_BACKGROUND_PRIORITY,
+			//        VSTCRO_None,
+			//        []() -> HRESULT
+			//    {
+			//        CComPtr<IVsTelemetryEvent> spStacksMemoryFull;
+			//        if (SUCCEEDED(TelemetryHelper::CreateEventW(L"vs/core/detours/collectstacks/StackMemFull", &spStacksMemoryFull)))
+			//        {
+			//            spStacksMemoryFull->SetLongProperty(L"vs.core.detours.collectstacks.StackMemFull.limit", g_MyStlAllocLimit);
+			//            spStacksMemoryFull->SetLongProperty(L"vs.core.detours.collectstacks.StackMemFull.TotalAlloc", g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap]);
+			//            TelemetryHelper::PostEvent(spStacksMemoryFull);
+			//        }
 
-            //        return S_OK;
-            //    },
-            //        pTaskSchedulerService,
-            //        L"DetourCollectStack",
-            //        &spTask);
+			//        return S_OK;
+			//    },
+			//        pTaskSchedulerService,
+			//        L"DetourCollectStack",
+			//        &spTask);
 
-            //}
+			//}
 
 		}
 	}
