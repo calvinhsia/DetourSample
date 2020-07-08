@@ -36,7 +36,7 @@ struct CallStack
 		//*
 		CONTEXT context = { 0 };
 		RtlCaptureContext(&context);
-		nFrames = GetStack(
+		nFrames = GetStack( // Bug 27504757: RtlCaptureStackBackTrace broken for > 2G user mode stack capture in 32 bit process https://microsoft.visualstudio.com/OS/_workitems/edit/27504757
 			context,
 			NumFramesToSkip,
 			g_NumFramesTocapture,

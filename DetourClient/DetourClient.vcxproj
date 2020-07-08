@@ -128,6 +128,13 @@
     <Link>
       <SubSystem>Windows</SubSystem>
     </Link>
+    <PostBuildEvent>
+      <Command>call "$(DevEnvDir)..\..\vc\Auxiliary\build\vcvarsall.bat" x86
+EditBin.exe "$(TargetPath)"  /LARGEADDRESSAWARE
+dumpbin /headers "$(TargetPath)"  | find /i "large"
+echo done
+</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Amd64|Win32'">
     <ClCompile>
@@ -143,6 +150,13 @@
     <Link>
       <SubSystem>Windows</SubSystem>
     </Link>
+    <PostBuildEvent>
+      <Command>call "$(DevEnvDir)..\..\vc\Auxiliary\build\vcvarsall.bat" x86
+EditBin.exe "$(TargetPath)"  /LARGEADDRESSAWARE
+dumpbin /headers "$(TargetPath)"  | find /i "large"
+echo done
+</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -189,6 +203,13 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
+    <PostBuildEvent>
+      <Command>call "$(DevEnvDir)..\..\vc\Auxiliary\build\vcvarsall.bat" x86
+EditBin.exe "$(TargetPath)"  /LARGEADDRESSAWARE
+dumpbin /headers "$(TargetPath)"  | find /i "large"
+echo done
+</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
