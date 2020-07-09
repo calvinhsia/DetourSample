@@ -24,6 +24,8 @@ CComAutoCriticalSection g_critSectHeapAlloc;
 
 
 typedef std::vector<PVOID, MySTLAlloc<PVOID, StlAllocUseCallStackHeap>> vecFrames;
+#include "winnt.h"
+#include "Windows.h""
 
 // Collects the callstack and calculates the stack hash
 // represents a single call stack and how often the identical stack occurs
@@ -34,6 +36,7 @@ struct CallStack
 		int nFrames = 0;
 		_vecFrames.resize(g_NumFramesTocapture);
 		//*
+		RtlVirtualUnwind();
 		CONTEXT context = { 0 };
 		RtlCaptureContext(&context);
 		nFrames = GetStack( // Bug 27504757: RtlCaptureStackBackTrace broken for > 2G user mode stack capture in 32 bit process https://microsoft.visualstudio.com/OS/_workitems/edit/27504757
