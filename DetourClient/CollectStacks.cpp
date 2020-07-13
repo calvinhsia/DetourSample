@@ -35,8 +35,8 @@ struct CallStack
 	{
 		int nFrames = 0;
 		_vecFrames.resize(g_NumFramesTocapture);
+#ifndef AMD64
 		//*
-		RtlVirtualUnwind();
 		CONTEXT context = { 0 };
 		RtlCaptureContext(&context);
 		nFrames = GetStack( // Bug 27504757: RtlCaptureStackBackTrace broken for > 2G user mode stack capture in 32 bit process https://microsoft.visualstudio.com/OS/_workitems/edit/27504757
@@ -46,14 +46,15 @@ struct CallStack
 			&_vecFrames[0],
 			&_stackHash
 		);
-		/*/
+#else
+		//		RtlVirtualUnwind();
 		nFrames = RtlCaptureStackBackTrace(
 			NumFramesToSkip,
 			g_NumFramesTocapture,
 			&_vecFrames[0],
 			&_stackHash
 		);
-		//*/
+#endif
 		_vecFrames.resize(nFrames);
 	}
 	CallStack(CallStack&& other) noexcept// move constructor
@@ -68,6 +69,7 @@ struct CallStack
 		PVOID m_ReturnAddress;
 	};
 
+#ifndef AMD64
 	inline bool IsValidEBP(_In_ EBP_STACK_FRAME* pebpFrame, _In_ PNT_TIB pTIB)
 	{
 		// Check for stack limits. A few things to note:
@@ -98,7 +100,7 @@ struct CallStack
 	{
 		ULONG hash = 0;
 		int nFrames = 0;
-		try
+		__try
 		{
 			EBP_STACK_FRAME* currentEBP = static_cast<EBP_STACK_FRAME*>(ULongToPtr(context.Ebp));
 			EBP_STACK_FRAME* lastEBP = nullptr;
@@ -123,16 +125,19 @@ struct CallStack
 					}
 				}
 			}
-
-			*pHash = hash;
-
+			if (pHash != nullptr)
+			{
+				pHash = 0;
+				*pHash = hash;
+			}
 		}
-		catch (const std::exception&)
+		__except(EXCEPTION_EXECUTE_HANDLER)
 		{
 
 		}
-		return nFrames - NumFramesToSkip;
+		return nFrames - NumFramesToSkip > 0 ? nFrames - NumFramesToSkip : 0;
 	}
+#endif
 	CallStack& operator = (CallStack&& other) noexcept// move assignment
 	{
 		if (this != &other)
