@@ -132,6 +132,8 @@
       <Command>call "$(DevEnvDir)..\..\vc\Auxiliary\build\vcvarsall.bat" x86
 EditBin.exe "$(TargetPath)"  /LARGEADDRESSAWARE
 dumpbin /headers "$(TargetPath)"  | find /i "large"
+xcopy /dy "$(TargetPath)"  "$(SolutionDir)\UnitTestProject1\bin\$(Configuration)"
+
 echo done
 </Command>
     </PostBuildEvent>
@@ -154,6 +156,8 @@ echo done
       <Command>call "$(DevEnvDir)..\..\vc\Auxiliary\build\vcvarsall.bat" x86
 EditBin.exe "$(TargetPath)"  /LARGEADDRESSAWARE
 dumpbin /headers "$(TargetPath)"  | find /i "large"
+xcopy /dy "$(TargetPath)"  "$(SolutionDir)\UnitTestProject1\bin\$(Configuration)"
+
 echo done
 </Command>
     </PostBuildEvent>
@@ -207,6 +211,8 @@ echo done
       <Command>call "$(DevEnvDir)..\..\vc\Auxiliary\build\vcvarsall.bat" x86
 EditBin.exe "$(TargetPath)"  /LARGEADDRESSAWARE
 dumpbin /headers "$(TargetPath)"  | find /i "large"
+xcopy /dy "$(TargetPath)"  "$(SolutionDir)\UnitTestProject1\bin\$(Configuration)"
+
 echo done
 </Command>
     </PostBuildEvent>
@@ -234,6 +240,7 @@ echo done
     <ClCompile Include="DoSomeManagedCode.cpp" />
     <ClCompile Include="DoSomeThreadingModelExperiments.cpp" />
     <ClCompile Include="CreateComObject.cpp" />
+    <ClCompile Include="TestEntry.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DetourClientMain.h" />

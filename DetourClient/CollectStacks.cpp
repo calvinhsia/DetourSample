@@ -25,7 +25,7 @@ CComAutoCriticalSection g_critSectHeapAlloc;
 
 typedef std::vector<PVOID, MySTLAlloc<PVOID, StlAllocUseCallStackHeap>> vecFrames;
 #include "winnt.h"
-#include "Windows.h""
+#include "Windows.h"
 
 // Collects the callstack and calculates the stack hash
 // represents a single call stack and how often the identical stack occurs
@@ -127,7 +127,6 @@ struct CallStack
 			}
 			if (pHash != nullptr)
 			{
-				pHash = 0;
 				*pHash = hash;
 			}
 		}

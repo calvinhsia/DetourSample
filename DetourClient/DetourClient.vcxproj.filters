@@ -30,6 +30,9 @@
     <ClCompile Include="CreateComObject.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TestEntry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DetourClientMain.h">
