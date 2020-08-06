@@ -223,6 +223,11 @@ echo done</Command>
   <ItemGroup>
     <ClInclude Include="DetourShared.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DetourLib\DetourLib.vcxproj">
+      <Project>{a1426c5a-9efd-446b-b1e4-65d975fe0aa0}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

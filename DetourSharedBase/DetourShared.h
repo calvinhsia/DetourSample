@@ -81,6 +81,8 @@ CLINKAGE HRESULT EXPORT RedirectDetour(int DTF_Id, PVOID pvNew, PVOID *ppReal);
 
 CLINKAGE HRESULT EXPORT LockDetourTable();
 CLINKAGE HRESULT EXPORT UnlockDetourTable();
+CLINKAGE HRESULT EXPORT StartDetouring(PVOID* pDetours);
+CLINKAGE HRESULT EXPORT StopDetouring(PVOID pDetours);
 
 
 #ifdef _WIN64

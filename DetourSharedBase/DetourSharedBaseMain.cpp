@@ -465,6 +465,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 			VirtualFree(addr, 0, MEM_RELEASE);
 
 		}
+		PVOID pDetours = nullptr;
+		StartDetouring(&pDetours);
 		SharedDetours sharedDetours;
 		MessageBoxA(0, "Detours in place, calling unredirected version of MessageboxA", desc.c_str(), 0);
 
@@ -479,6 +481,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		StartVS();
 
 		auto h = GetModuleHandleA(0);
+		StopDetouring(pDetours);
 	}
 
 	// detours are now uninstalled:
