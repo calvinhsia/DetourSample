@@ -215,10 +215,12 @@ echo done</Command>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\DetourLib\dllmain.cpp" />
     <ClCompile Include="..\Detours\detours.cpp" />
     <ClCompile Include="..\Detours\disasm.cpp" />
     <ClCompile Include="..\Detours\modules.cpp" />
     <ClCompile Include="DetourSharedBaseMain.cpp" />
+    <ClCompile Include="SharedDetour.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DetourShared.h" />

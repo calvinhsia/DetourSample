@@ -2,26 +2,6 @@
 #include "pch.h"
 #include "..\DetourSharedBase\DetourShared.h"
 
-class temp
-{
-public:
-    int mem;
-};
-CLINKAGE HRESULT EXPORT StartDetouring(PVOID *pDetours)
-{
-    auto xx = new temp();
-    xx->mem = 1;
-    *pDetours = xx;
-    return S_OK;
-}
-#pragma comment(linker, "/EXPORT:StartDetouring=_StartDetouring@4")
-
-CLINKAGE HRESULT EXPORT StopDetouring(PVOID oDetours)
-{
-    delete oDetours;
-    return S_OK;
-}
-#pragma comment(linker, "/EXPORT:StopDetouring=_StopDetouring@4")
 
 
 
