@@ -42,5 +42,22 @@ namespace UnitTestProject1
                 Marshal.ReleaseComObject(obj);
             }
         }
+        [TestMethod]
+        public void TestPlumbing2()
+        {
+            using (var oInterop = new Interop())
+            {
+                var obj = GetTestHeapStacks(oInterop);
+                obj.DoHeapStackTests(parm1: 123, out var x);
+                Assert.AreEqual(124, x);
+
+                obj.StartDetours(out var pDetours);
+                obj.StopDetours(pDetours);
+
+
+                Marshal.ReleaseComObject(obj);
+            }
+        }
+
     }
 }
