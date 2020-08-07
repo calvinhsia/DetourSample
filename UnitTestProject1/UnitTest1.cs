@@ -10,23 +10,33 @@ namespace UnitTestProject1
     public interface ITestHeapStacks
     {
         void DoHeapStackTests(int parm1, out int parm2);
+        void StartDetouring(out IntPtr parm2);
+
+        //void StartDetouring(out IntPtr pDetours);
+        void StopDetouring(IntPtr pDetours);
     }
 
     [TestClass]
     public class UnitTest1
     {
+        Guid guidComClass = new Guid("A90F9940-53C9-45B9-B67B-EE2EDE51CC00");
+        ITestHeapStacks GetTestHeapStacks(Interop oInterop)
+        {
+            var hr = oInterop.CoCreateFromFile("DetourClient.dll", guidComClass, typeof(ITestHeapStacks).GUID, out var pObject);
+            var obj = (ITestHeapStacks)Marshal.GetTypedObjectForIUnknown(pObject, typeof(ITestHeapStacks));
+            return obj;
+
+        }
         [TestMethod]
-        public void TestMethod1()
+        public void TestPlumbing()
         {
             using (var oInterop = new Interop())
             {
-                var guidComClass = new Guid("A90F9940-53C9-45B9-B67B-EE2EDE51CC00");
-
                 var hr = oInterop.CoCreateFromFile("DetourClient.dll", guidComClass, typeof(ITestHeapStacks).GUID, out var pObject);
-                var obj = (ITestHeapStacks)Marshal.GetTypedObjectForIUnknown(pObject, typeof(ITestHeapStacks));
-                
+                var obj = GetTestHeapStacks(oInterop);
                 obj.DoHeapStackTests(parm1:123, out var x);
                 Assert.AreEqual(124, x);
+
                 Marshal.ReleaseComObject(obj);
             }
         }

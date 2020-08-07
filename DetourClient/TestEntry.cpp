@@ -32,6 +32,16 @@ public:
 		*pparm2 = parm1 + 1;
 		return S_OK;
 	}
+	HRESULT __stdcall raw_StartDetouring(long* pparm2)
+	{
+//		*pparm2 = parm1 + 1;
+		return S_OK;
+	}
+	HRESULT __stdcall raw_StopDetouring(long pparm2)
+	{
+		//		*pparm2 = parm1 + 1;
+		return S_OK;
+	}
 };
 
 OBJECT_ENTRY_AUTO(CLSID_MyTest, MyTest)
