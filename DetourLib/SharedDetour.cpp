@@ -1,6 +1,6 @@
 #include <Windows.h>
 #include "..\Detours\detours.h"
-#include "DetourShared.h"
+#include "..\DetourSharedBase\DetourShared.h"
 #include "crtdbg.h"
 #include "stdio.h"
 
