@@ -8,10 +8,13 @@
 #include <functional>
 
 #include <initguid.h>
+
+#include "..\DetourSharedBase\DetourShared.h"
+
 using namespace UnitTestProject1;
 
 // {A90F9940-53C9-45B9-B67B-EE2EDE51CC00}
-DEFINE_GUID(CLSID_MyTest ,
+DEFINE_GUID(CLSID_MyTest,
 	0xa90f9940, 0x53c9, 0x45b9, 0xb6, 0x7b, 0xee, 0x2e, 0xde, 0x51, 0xcc, 0x0);
 
 class MyTest :
@@ -27,21 +30,39 @@ public:
 	DECLARE_NOT_AGGREGATABLE(MyTest)
 	DECLARE_NO_REGISTRY()
 
-	HRESULT __stdcall raw_DoHeapStackTests(long parm1, long *pparm2)
+	STDMETHOD(raw_DoHeapStackTests)(long parm1, long* pparm2)
 	{
 		*pparm2 = parm1 + 1;
 		return S_OK;
 	}
-	HRESULT __stdcall raw_StartDetouring(long* pparm2)
+	STDMETHOD(raw_StartDetours)(long* pparm2)
 	{
-//		*pparm2 = parm1 + 1;
+		StartDetouring((PVOID*)pparm2);
 		return S_OK;
 	}
-	HRESULT __stdcall raw_StopDetouring(long pparm2)
+	STDMETHOD(raw_StopDetours)(long pparm2)
 	{
-		//		*pparm2 = parm1 + 1;
+		StopDetouring((PVOID)pparm2);
 		return S_OK;
 	}
+
+	//	HRESULT __stdcall raw_DoHeapStackTests(long parm1, long *pparm2)
+	//	{
+	//		*pparm2 = parm1 + 1;
+	//		return S_OK;
+	//	}
+	//	HRESULT __stdcall raw_StartDetours(PVOID *pparm2)
+	//	{
+	//		StartDetouring(pparm2);
+	////		*pparm2 = parm1 + 1;
+	//		return S_OK;
+	//	}
+	//	HRESULT __stdcall raw_StopDetours(PVOID pparm2)
+	//	{
+	//		StopDetouring(pparm2);
+	//		//		*pparm2 = parm1 + 1;
+	//		return S_OK;
+	//	}
 };
 
 OBJECT_ENTRY_AUTO(CLSID_MyTest, MyTest)

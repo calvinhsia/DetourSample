@@ -371,6 +371,11 @@ private:
 		DETACH(&g_arrDetourTableEntry[DTF_HeapReAlloc].RealFunction, MyStubHeapReAlloc);
 		DETACH(&g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction, MyStubRtlFreeHeap);
 
+#ifndef _WIN64
+		DETACH(&g_arrDetourTableEntry[DTF_NdrClientCall2].RealFunction, MyStubNdrClientCall2);
+#endif _WIN64
+
+
 		DETACH(&g_arrDetourTableEntry[DTF_RegCreateKeyExW].RealFunction, MyStubRegCreateKeyExW);
 		DETACH(&g_arrDetourTableEntry[DTF_RegOpenKeyExW].RealFunction, MyStubRegOpenKeyExW);
 
@@ -407,6 +412,7 @@ private:
 
 CLINKAGE HRESULT EXPORT StartDetouring(PVOID* pDetours)
 {
+//	SharedDetours xx;
 	auto xx = new SharedDetours();
 	*pDetours = xx;
 	return S_OK;
@@ -415,7 +421,8 @@ CLINKAGE HRESULT EXPORT StartDetouring(PVOID* pDetours)
 
 CLINKAGE HRESULT EXPORT StopDetouring(PVOID oDetours)
 {
-	delete oDetours;
+	SharedDetours* xx = (SharedDetours*)oDetours;
+	delete xx;
 	return S_OK;
 }
 #pragma comment(linker, "/EXPORT:StopDetouring=_StopDetouring@4")
