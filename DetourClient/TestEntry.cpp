@@ -10,8 +10,27 @@
 #include <initguid.h>
 
 #include "..\DetourSharedBase\DetourShared.h"
+#include "DetourClientMain.h"
 
 using namespace UnitTestProject1;
+
+//typedef DWORD(WINAPI* pfnGetModuleFileNameA)(
+//	_In_opt_ HMODULE hModule,
+//	_Out_writes_to_(nSize, ((return < nSize) ? (return +1) : nSize)) LPSTR lpFilename,
+//	_In_ DWORD nSize
+//	);
+//pfnGetModuleFileNameA real_GetModuleFileNameA;
+//
+//DWORD WINAPI MyGetModuleFileNameA(
+//	_In_opt_ HMODULE hModule,
+//	_Out_writes_to_(nSize, ((return < nSize) ? (return +1) : nSize)) LPSTR lpFilename,
+//	_In_ DWORD nSize
+//)
+//{
+//	return real_GetModuleFileNameA(hModule, lpFilename, nSize);
+//}
+
+
 
 // {A90F9940-53C9-45B9-B67B-EE2EDE51CC00}
 DEFINE_GUID(CLSID_MyTest,
@@ -30,39 +49,58 @@ public:
 	DECLARE_NOT_AGGREGATABLE(MyTest)
 	DECLARE_NO_REGISTRY()
 
-	STDMETHOD(raw_DoHeapStackTests)(long parm1, long* pparm2)
+	STDMETHOD(raw_DoHeapStackTests)(long parm1, long* pparm2, BSTR bstrStrin, BSTR* pBstr)
 	{
 		*pparm2 = parm1 + 1;
+		CComBSTR strIn(bstrStrin);
+		strIn += L"GotStr";
+		*pBstr = strIn.Detach();// SysAllocString(strIn.m_str);
 		return S_OK;
 	}
 	STDMETHOD(raw_StartDetours)(long* pparm2)
 	{
 		StartDetouring((PVOID*)pparm2);
+
+		InitCollectStacks();
+
+
+		HMODULE hmDevenv = GetModuleHandleA("DetourLib.dll");
+
+		//	g_mapStacks = new (malloc(sizeof(mapStacks)) mapStacks(MySTLAlloc < pair<const SIZE_T, vecStacks>(GetProcessHeap());
+
+		auto fnRedirectDetour = reinterpret_cast<pfnRedirectDetour>(GetProcAddress(hmDevenv, REDIRECTDETOUR));
+		VSASSERT(fnRedirectDetour != nullptr, "Failed to get RedirectDetour");
+		auto res = fnRedirectDetour(DTF_GetModuleFileNameA, MyGetModuleFileNameA, (PVOID*)&g_real_GetModuleFileNameA);
+		VSASSERT(res == S_OK, "Redirecting detour to MyGetModuleFileNameA");
+
+		char szBuff[MAX_PATH];
+		auto len = GetModuleFileNameA(0, szBuff, sizeof(szBuff));
+
+
+		//auto res = fnRedirectDetour(DTF_RtlAllocateHeap, MyRtlAllocateHeap, (PVOID*)&Real_RtlAllocateHeap);
+		//VSASSERT(res == S_OK, "Redirecting detour to allocate heap");
+
+		//res = fnRedirectDetour(DTF_HeapReAlloc, MyHeapReAlloc, (PVOID*)&Real_HeapReAlloc);
+		//VSASSERT(res == S_OK, "Redirecting detour to heapReAlloc");
+
+
+		//res = fnRedirectDetour(DTF_RtlFreeHeap, MyRtlFreeHeap, (PVOID*)&Real_RtlFreeHeap);
+		//VSASSERT(res == S_OK, "Redirecting detour to free heap");
+
+
+
 		return S_OK;
 	}
 	STDMETHOD(raw_StopDetours)(long pparm2)
 	{
+		UninitCollectStacks();
 		StopDetouring((PVOID)pparm2);
+		if (!HeapDestroy(g_hHeapDetourData))
+		{
+			VSASSERT(false, "Couldn't destroy heap");
+		}
 		return S_OK;
 	}
-
-	//	HRESULT __stdcall raw_DoHeapStackTests(long parm1, long *pparm2)
-	//	{
-	//		*pparm2 = parm1 + 1;
-	//		return S_OK;
-	//	}
-	//	HRESULT __stdcall raw_StartDetours(PVOID *pparm2)
-	//	{
-	//		StartDetouring(pparm2);
-	////		*pparm2 = parm1 + 1;
-	//		return S_OK;
-	//	}
-	//	HRESULT __stdcall raw_StopDetours(PVOID pparm2)
-	//	{
-	//		StopDetouring(pparm2);
-	//		//		*pparm2 = parm1 + 1;
-	//		return S_OK;
-	//	}
 };
 
 OBJECT_ENTRY_AUTO(CLSID_MyTest, MyTest)

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace UnitTestProject1
@@ -9,10 +10,10 @@ namespace UnitTestProject1
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface ITestHeapStacks
     {
-        void DoHeapStackTests(int parm1, out int parm2);
-        void StartDetours(out int parm2);
+        void DoHeapStackTests(int parm1, out int parm2, string strIn, out string strOut);
+        void StartDetours(out IntPtr parm2);
 
-        void StopDetours(int pDetours);
+        void StopDetours(IntPtr pDetours);
     }
 
     [TestClass]
@@ -32,32 +33,32 @@ namespace UnitTestProject1
             using (var oInterop = new Interop())
             {
                 var obj = GetTestHeapStacks(oInterop);
-                obj.DoHeapStackTests(parm1:123, out var x);
-                Assert.AreEqual(124, x);
-
+                var sb = new StringBuilder(500);
+                GetModuleFileName(IntPtr.Zero, sb, sb.Capacity);
+                Assert.AreEqual(System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName, sb.ToString());
                 obj.StartDetours(out var pDetours);
-                obj.StopDetours(pDetours);
+                GetModuleFileName(IntPtr.Zero, sb, sb.Capacity);
+                Assert.AreEqual("InDetouredGetModuleFileName", sb.ToString());
+                for (int i = 0; i < 1000; i++)
+                {
+                    obj.DoHeapStackTests(parm1: 123, out var x, "StringIn", out var str);
+                    Assert.AreEqual(124, x);
 
+                    Assert.AreEqual(str, "StringInGotStr");
+                }
+
+                obj.StopDetours(pDetours);
 
                 Marshal.ReleaseComObject(obj);
             }
         }
-        [TestMethod]
-        public void TestPlumbing2()
-        {
-            using (var oInterop = new Interop())
-            {
-                var obj = GetTestHeapStacks(oInterop);
-                obj.DoHeapStackTests(parm1: 123, out var x);
-                Assert.AreEqual(124, x);
-
-                obj.StartDetours(out var pDetours);
-                obj.StopDetours(pDetours);
-
-
-                Marshal.ReleaseComObject(obj);
-            }
-        }
-
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [PreserveSig]
+        public static extern uint GetModuleFileName
+        (
+            [In] IntPtr hModule,
+            [Out] StringBuilder lpFilename,
+            [In][MarshalAs(UnmanagedType.U4)] int nSize
+        );
     }
 }

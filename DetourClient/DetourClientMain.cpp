@@ -12,9 +12,6 @@
 using namespace std;
 
 
-pfnRtlAllocateHeap Real_RtlAllocateHeap;
-pfnHeapReAlloc Real_HeapReAlloc;
-pfnRtlFreeHeap Real_RtlFreeHeap;
 
 
 DWORD g_dwMainThread;
@@ -378,7 +375,7 @@ HMODULE WINAPI MyGetModuleHandleA(LPCSTR lpModuleName)
 	return g_real_GetModuleHandleA(lpModuleName);
 }
 
-decltype(&GetModuleFileNameA) g_real_GetModuleFileNameA;
+decltype(&GetModuleFileNameA) g_real_GetModuleFileNameA; 
 DWORD WINAPI MyGetModuleFileNameA(
 	_In_opt_ HMODULE hModule,
 	_Out_writes_to_(nSize, ((return < nSize) ? (return +1) : nSize)) LPSTR lpFilename,

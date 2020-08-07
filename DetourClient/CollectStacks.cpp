@@ -16,6 +16,9 @@ long g_MyStlAllocLimit = 65536 * 1;
 // our private heap
 HANDLE g_hHeapDetourData;
 
+pfnRtlAllocateHeap Real_RtlAllocateHeap;
+pfnHeapReAlloc Real_HeapReAlloc;
+pfnRtlFreeHeap Real_RtlFreeHeap;
 
 vector<HeapSizeData> g_heapAllocSizes;
 
@@ -239,6 +242,7 @@ StlAllocStats g_MyStlAllocStats;
 
 void InitCollectStacks()
 {
+	VSASSERT(g_hHeapDetourData == nullptr, "Should be null");
 	// create a heap that stores our private data: MyTlsData and Call stacks
 	g_hHeapDetourData = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 0);
 

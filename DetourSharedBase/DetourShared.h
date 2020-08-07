@@ -1,8 +1,10 @@
 #pragma once
 #include <Windows.h>
+#include "crtdbg.h"
 
 #define CLINKAGE extern "C"
 #define EXPORT __declspec(dllexport) __stdcall
+#define VSASSERT(a,b) _ASSERT_EXPR(a,L##b);
 
 
 /*
@@ -145,4 +147,27 @@ typedef enum {
 } tagDetouredFunctions;
 
 
+// a single entry for a detoured function. Contains the real address (original address) of the function being detoured, and the eventual target path (initially 0).
+// The eventual target can be set much later in the process, when there are many more threads.
+struct DetourTableEntry
+{
+	// when detour is in place, this is the address of the original function being detoured (e.g. user32::MessageBoxA)
+	PVOID RealFunction;
 
+	// when the client code (e.g. vslog or msenv) wants to detour, then this is the address of that code, set by RedirectDetour. If no detour in place, this is 0
+	PVOID RedirectedFunction;
+
+	// this is only used for the non-ASM version of this detouring code
+	PVOID GetMethod()
+	{
+		if (RedirectedFunction != nullptr)
+		{
+			return RedirectedFunction;
+		}
+		_ASSERT_EXPR(RealFunction, L"How can real function be null?");
+		return RealFunction;
+	}
+};
+
+// an array containing a DetourTableEntry for each detour.
+extern DetourTableEntry g_arrDetourTableEntry[DTF_MAX];
