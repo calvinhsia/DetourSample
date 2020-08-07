@@ -10,16 +10,6 @@ using System.Threading.Tasks;
 
 namespace UnitTestProject1
 {
-    [ComVisible(true)]
-    [Guid("1491F27F-5EB8-4A70-8651-23F1AB98AEC6")] ///{1491F27F-5EB8-4A70-8651-23F1AB98AEC6}
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface ITestHeapStacks
-    {
-        void DoHeapStackTests(int parm1);
-    }
-    //[ComVisible(true)]
-    //// {E346C517-279C-4028-A87E-2378A9A8A50F}
-    //[Guid("E346C517-279C-4028-A87E-2378A9A8A50F")]
     public class Interop : IDisposable
     {
         static class HResult

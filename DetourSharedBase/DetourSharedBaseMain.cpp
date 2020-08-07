@@ -10,6 +10,11 @@ using namespace std;
 
 typedef int (WINAPI* PfnStartVisualStudio)(void);
 
+#ifndef _WIN64
+char g_szArch[] = "x86 32 bit";
+#else _WIN64
+char* g_szArch = "x64 64 bit";
+#endif
 
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,

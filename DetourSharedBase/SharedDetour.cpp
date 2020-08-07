@@ -33,7 +33,6 @@ DetourTableEntry g_arrDetourTableEntry[DTF_MAX];
 // using declsepc(naked) means we don't have to push/pop the params multiple times
 
 #ifndef _WIN64
-char* g_szArch = "x86 32 bit";
 /*
 STUBMACRO defines ASM code that takes the parameter as a DTF enum and looks up the DetourTableEntry in the array
 g_arrDetourTableEntry. Hotpath has minimal branching
@@ -335,8 +334,8 @@ private:
 #endif _WIN64
 
 		DetourTransactionBegin();
-#define ATTACH(x,y)   DetAttach(x, y,#x)
-#define DETACH(x,y)   DetDetach(x,y,#x)
+#define ATTACH(x,y)   DetAttach(x, y,(PCHAR)#x)
+#define DETACH(x,y)   DetDetach(x, y,(PCHAR)#x)
 
 
 		ATTACH(&g_arrDetourTableEntry[DTF_MessageBoxA].RealFunction, MyStubMessageBoxA);

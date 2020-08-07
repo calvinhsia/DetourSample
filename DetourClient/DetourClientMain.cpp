@@ -417,7 +417,7 @@ thread_local myclass g_myclass;
 void HookInMyOwnVersion(BOOL fHook)
 {
 
-	HMODULE hmDevenv = GetModuleHandleA(nullptr);
+	HMODULE hmDevenv = GetModuleHandleA("DetourLib.dll");
 
 	//	g_mapStacks = new (malloc(sizeof(mapStacks)) mapStacks(MySTLAlloc < pair<const SIZE_T, vecStacks>(GetProcessHeap());
 

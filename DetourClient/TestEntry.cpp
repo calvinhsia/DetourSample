@@ -27,8 +27,9 @@ public:
 	DECLARE_NOT_AGGREGATABLE(MyTest)
 	DECLARE_NO_REGISTRY()
 
-	HRESULT __stdcall raw_DoHeapStackTests(long parm1)
+	HRESULT __stdcall raw_DoHeapStackTests(long parm1, long *pparm2)
 	{
+		*pparm2 = parm1 + 1;
 		return S_OK;
 	}
 };

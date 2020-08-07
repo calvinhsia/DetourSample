@@ -84,7 +84,6 @@ CLINKAGE HRESULT EXPORT UnlockDetourTable();
 CLINKAGE HRESULT EXPORT StartDetouring(PVOID* pDetours);
 CLINKAGE HRESULT EXPORT StopDetouring(PVOID pDetours);
 
-extern char* g_szArch;
 
 #ifdef _WIN64
 #define STARTVISUALSTUDIO "StartVisualStudio"

@@ -30,6 +30,9 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTestProject1", "UnitTestProject1\UnitTestProject1.csproj", "{4525FC3C-679B-4314-9D16-7072DAD8DB97}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DetourLib", "DetourLib\DetourLib.vcxproj", "{A1426C5A-9EFD-446B-B1E4-65D975FE0AA0}"
+	ProjectSection(ProjectDependencies) = postProject
+		{4525FC3C-679B-4314-9D16-7072DAD8DB97} = {4525FC3C-679B-4314-9D16-7072DAD8DB97}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
