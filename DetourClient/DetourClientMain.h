@@ -51,10 +51,12 @@ extern std::vector<HeapSizeData> g_heapAllocSizes;
 
 extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
 
-extern WCHAR * g_strHeapAllocSizesToCollect;
 extern int g_NumFramesTocapture;
 extern int g_HeapAllocSizeMinValue;
 extern long g_MyStlAllocLimit;
+extern int g_MyRtlAllocateHeapCount;
+
+void SetHeapSizesToCollect(std::wstring Sizes);
 
 extern decltype(&GetModuleFileNameA) g_real_GetModuleFileNameA;
 DWORD WINAPI MyGetModuleFileNameA(

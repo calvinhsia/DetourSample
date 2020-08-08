@@ -63,7 +63,6 @@ public:
 
 		InitCollectStacks();
 
-
 		HMODULE hmDevenv = GetModuleHandleA("DetourLib.dll");
 
 		//	g_mapStacks = new (malloc(sizeof(mapStacks)) mapStacks(MySTLAlloc < pair<const SIZE_T, vecStacks>(GetProcessHeap());
@@ -84,15 +83,31 @@ public:
 		res = fnRedirectDetour(DTF_HeapReAlloc, MyHeapReAlloc, (PVOID*)&Real_HeapReAlloc);
 		VSASSERT(res == S_OK, "Redirecting detour to heapReAlloc");
 
-
 		res = fnRedirectDetour(DTF_RtlFreeHeap, MyRtlFreeHeap, (PVOID*)&Real_RtlFreeHeap);
 		VSASSERT(res == S_OK, "Redirecting detour to free heap");
 
 		HeapUnlock(GetProcessHeap());
-
-
 		return S_OK;
 	}
+	STDMETHOD(raw_SetHeapCollectParams)(
+		BSTR HeapSizesToCollect,
+		long NumFramesToCapture,
+		long HeapAllocSizeMinValue,
+		long StlAllocLimit)
+	{
+		g_NumFramesTocapture = NumFramesToCapture;
+		g_HeapAllocSizeMinValue = HeapAllocSizeMinValue;
+		g_MyStlAllocLimit = StlAllocLimit;
+		SetHeapSizesToCollect(HeapSizesToCollect);
+		return S_OK;
+	}
+	STDMETHOD(raw_GetHeapCollectionStats)(
+		struct HeapCollectStats* pHeapStats)
+	{
+		pHeapStats->MyRtlAllocateHeapCount = g_MyRtlAllocateHeapCount;
+		return S_OK;
+	}
+
 
 	STDMETHOD(raw_StopDetours)(long pparm2)
 	{

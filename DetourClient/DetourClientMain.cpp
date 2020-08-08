@@ -152,7 +152,9 @@ MyTlsData::~MyTlsData()
 	InterlockedDecrement(&g_numTlsInstances);
 }
 
-static int g_MyRtlAllocateHeapCount = 0;
+
+int g_MyRtlAllocateHeapCount = 0;
+
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 {
 	g_MyRtlAllocateHeapCount++;
@@ -558,6 +560,22 @@ void DoLotsOfThreads()
 
 }
 
+void SetHeapSizesToCollect(wstring Sizes)
+{
+	splitStr(Sizes, ',', [](wstring valPair)
+		{
+			auto ndxColon = valPair.find(':');
+			auto heapSize = _wtol(valPair.substr(0, ndxColon).c_str());
+			auto heapThresh = _wtol(valPair.substr(ndxColon + 1).c_str());
+			g_heapAllocSizes.push_back(HeapSizeData(heapSize, heapThresh));
+
+		});
+	// add one more at the end for any allocation > the min threshold
+	g_heapAllocSizes.push_back(HeapSizeData(g_HeapAllocSizeMinValue, 0));
+
+}
+
+
 CLINKAGE void EXPORT StartVisualStudio()
 {
 	InitCollectStacks();
@@ -633,16 +651,7 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 	g_dwMainThread = GetCurrentThreadId();
 
-	splitStr(g_strHeapAllocSizesToCollect, ',', [](wstring valPair)
-		{
-			auto ndxColon = valPair.find(':');
-			auto heapSize = _wtol(valPair.substr(0, ndxColon).c_str());
-			auto heapThresh = _wtol(valPair.substr(ndxColon + 1).c_str());
-			g_heapAllocSizes.push_back(HeapSizeData(heapSize, heapThresh));
-
-		});
-	// add one more at the end for any allocation > the min threshold
-	g_heapAllocSizes.push_back(HeapSizeData(g_HeapAllocSizeMinValue, 0));
+	SetHeapSizesToCollect(L"8:271 , 72:220, 1031:40");
 
 	SIZE_T sizeAlloc = 72;
 	auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [sizeAlloc](HeapSizeData data)

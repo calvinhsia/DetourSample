@@ -6,8 +6,7 @@
 
 using namespace std;
 
-// these are settable by remote settings
-WCHAR* g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
+
 int g_NumFramesTocapture = 20;
 int g_HeapAllocSizeMinValue = 0;// 1048576;
 long g_MyStlAllocLimit = 65536 * 1;
