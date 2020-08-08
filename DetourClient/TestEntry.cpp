@@ -76,29 +76,30 @@ public:
 		char szBuff[MAX_PATH];
 		auto len = GetModuleFileNameA(0, szBuff, sizeof(szBuff));
 
+		HeapLock(GetProcessHeap());
 
-		//auto res = fnRedirectDetour(DTF_RtlAllocateHeap, MyRtlAllocateHeap, (PVOID*)&Real_RtlAllocateHeap);
-		//VSASSERT(res == S_OK, "Redirecting detour to allocate heap");
+		res = fnRedirectDetour(DTF_RtlAllocateHeap, MyRtlAllocateHeap, (PVOID*)&Real_RtlAllocateHeap);
+		VSASSERT(res == S_OK, "Redirecting detour to allocate heap");
 
-		//res = fnRedirectDetour(DTF_HeapReAlloc, MyHeapReAlloc, (PVOID*)&Real_HeapReAlloc);
-		//VSASSERT(res == S_OK, "Redirecting detour to heapReAlloc");
+		res = fnRedirectDetour(DTF_HeapReAlloc, MyHeapReAlloc, (PVOID*)&Real_HeapReAlloc);
+		VSASSERT(res == S_OK, "Redirecting detour to heapReAlloc");
 
 
-		//res = fnRedirectDetour(DTF_RtlFreeHeap, MyRtlFreeHeap, (PVOID*)&Real_RtlFreeHeap);
-		//VSASSERT(res == S_OK, "Redirecting detour to free heap");
+		res = fnRedirectDetour(DTF_RtlFreeHeap, MyRtlFreeHeap, (PVOID*)&Real_RtlFreeHeap);
+		VSASSERT(res == S_OK, "Redirecting detour to free heap");
 
+		HeapUnlock(GetProcessHeap());
 
 
 		return S_OK;
 	}
+
 	STDMETHOD(raw_StopDetours)(long pparm2)
 	{
-		UninitCollectStacks();
+		HeapLock(GetProcessHeap());
 		StopDetouring((PVOID)pparm2);
-		if (!HeapDestroy(g_hHeapDetourData))
-		{
-			VSASSERT(false, "Couldn't destroy heap");
-		}
+		UninitCollectStacks();
+		HeapUnlock(GetProcessHeap());
 		return S_OK;
 	}
 };

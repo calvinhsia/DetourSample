@@ -45,8 +45,8 @@ bool MyTlsData::DllMain(ULONG ulReason)
 		break;
 	case DLL_PROCESS_DETACH:
 	{
-        UninitCollectStacks();
-        TlsFree(g_tlsIndex);
+		UninitCollectStacks();
+		TlsFree(g_tlsIndex);
 	}
 	break;
 	case DLL_THREAD_DETACH:
@@ -69,7 +69,7 @@ bool MyTlsData::DllMain(ULONG ulReason)
 				mapThreadIdToTls::allocator_type alloc_type;
 
 				myByteAllocator allocatorByte(alloc_type);
-				allocatorByte.deallocate((BYTE *)res->second, sizeof(*res->second));
+				allocatorByte.deallocate((BYTE*)res->second, sizeof(*res->second));
 				g_pmapThreadIdToTls->erase(res);
 			}
 		}
@@ -81,7 +81,7 @@ bool MyTlsData::DllMain(ULONG ulReason)
 //static 
 MyTlsData* MyTlsData::GetTlsData()
 {
-	auto pMyTlsData = (MyTlsData *)TlsGetValue(g_tlsIndex);
+	auto pMyTlsData = (MyTlsData*)TlsGetValue(g_tlsIndex);
 	if (pMyTlsData == nullptr && g_pmapThreadIdToTls != nullptr)
 	{
 		CComCritSecLock<decltype(g_tlsCritSect)> lock(g_tlsCritSect);
@@ -110,7 +110,7 @@ MyTlsData* MyTlsData::GetTlsData()
 			auto res = g_pmapThreadIdToTls->find(GetCurrentThreadId());
 			if (res != g_pmapThreadIdToTls->end())
 			{
-				VSASSERT(((MyTlsData *)TlsGetValue(g_tlsIndex))->_dwThreadId == GetCurrentThreadId(), "tls already created?");
+				VSASSERT(((MyTlsData*)TlsGetValue(g_tlsIndex))->_dwThreadId == GetCurrentThreadId(), "tls already created?");
 			}
 			else
 			{
@@ -152,9 +152,10 @@ MyTlsData::~MyTlsData()
 	InterlockedDecrement(&g_numTlsInstances);
 }
 
-
+static int g_MyRtlAllocateHeapCount = 0;
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 {
+	g_MyRtlAllocateHeapCount++;
 #if _DEBUG
 	static int recurcount = 0;
 	if (recurcount++ > NUMTHREADS)
@@ -182,31 +183,34 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 		{
 			pMyTlsData->_fIsInRtlAllocHeap = true;
 			bool fDidCollectStack = false;
-			// we search through all but the last entry (end() -1) which is used to store any stacks of allocations > g_HeapAllocSizeMinValue
-			auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end() - 1, [size](HeapSizeData data)
+			if (g_heapAllocSizes.size() > 0)
 			{
-				if (data._nSize == size)
-				{
-					return true;
-				}
-				return false;
-			});
-			if (it != g_heapAllocSizes.end())
-			{
-				if (it->_nSize == size || 
-					size >= (SIZE_T)g_HeapAllocSizeMinValue) // these are huge allocations larger than e.g. 10M. We always try to collect stack
-				{
-					if (it->_nThreshold == 0)
+				// we search through all but the last entry (end() -1) which is used to store any stacks of allocations > g_HeapAllocSizeMinValue
+				auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end() - 1, [size](HeapSizeData data)
 					{
-						fDidCollectStack = CollectStack(StackTypeHeapAlloc,/*stackSubType*/ (DWORD)size, /*extra data*/NULL, /*numFramesToSkip*/1);
-						if (fDidCollectStack)
+						if (data._nSize == size)
 						{
-							InterlockedIncrement(&it->_nStacksCollected);
+							return true;
 						}
-					}
-					else
+						return false;
+					});
+				if (it != g_heapAllocSizes.end())
+				{
+					if (it->_nSize == size ||
+						size >= (SIZE_T)g_HeapAllocSizeMinValue) // these are huge allocations larger than e.g. 10M. We always try to collect stack
 					{
-						InterlockedDecrement(&it->_nThreshold);
+						if (it->_nThreshold == 0)
+						{
+							fDidCollectStack = CollectStack(StackTypeHeapAlloc,/*stackSubType*/ (DWORD)size, /*extra data*/NULL, /*numFramesToSkip*/1);
+							if (fDidCollectStack)
+							{
+								InterlockedIncrement(&it->_nStacksCollected);
+							}
+						}
+						else
+						{
+							InterlockedDecrement(&it->_nThreshold);
+						}
 					}
 				}
 			}
@@ -223,97 +227,97 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 
 #ifndef _WIN64
 
-_declspec (thread) // note: when this code runs in VS, random failures when initializing the std::stack in a TLS: the stack would be empty even when the prior line says push(). workaround: make the TLS point to a struct containing the stl::stack
-std::stack<std::pair<LPVOID, DWORD>> _stackRetAddresses; // return address, TickCount
-
-void _stdcall pushvalue(LPVOID val)
-{
-	_stackRetAddresses.push(pair<LPVOID, DWORD>(val, GetTickCount()));
-}
-
-LPVOID _stdcall popvalue()
-{
-	auto top = _stackRetAddresses.top();
-	auto retAddr = top.first;
-	auto elapsed = GetTickCount() - top.second;
-	_stackRetAddresses.pop();
-	DWORD stackSubType = 0;
-	if (GetCurrentThreadId() == g_dwMainThread)
-	{
-		stackSubType = 0;
-	}
-	else
-	{
-		stackSubType = 1;
-	}
-	CollectStack(StackTypeRpc, stackSubType, elapsed, /*numFramesToSkip*/3);
-	return retAddr;
-}
-
-PVOID Real_NdrClientCall2;
-_declspec(naked) void DetourNdrClientCall2()
-{
-	/*
-	detouring NdrClientCall2 is a little complicated because it's CDECL. Wrapping (running code before/after the call to get elapsed time) is thus more complex
-	https://msdn.microsoft.com/en-us/library/windows/desktop/aa374215(v=vs.85).aspx
-	Network Data Representation (NDR) Engine
-	A caller looks like:
-
-	CLIENT_CALL_RETURN RPC_VAR_ENTRY
-	NdrClientCall4(
-	PMIDL_STUB_DESC     pStubDescriptor,
-	PFORMAT_STRING      pFormat,
-	...
-	)
-	{
-	RPCP_PAGED_CODE();
-
-	va_list                     ArgList;
-
-	//
-	// On x86 we pass in a pointer to the first parameter, and expect that
-	// the rest of the parameters are directly behind it on the stack. The
-	// only way this silly assumption is true is if we disable optimization
-	// in the stub. We will switch to passing in all the parameters the same
-	// as in AMD64 and ARM. Due to back compat, we can't change NdrClientCall2,
-	// so this is a copy of the AMD/ARM version of NdrClientCall2 only called
-	// on x86 running Win8.1 or newer.
-	//
-	INIT_ARG( ArgList, pFormat);
-	uchar *StartofStack = (uchar*)GET_STACK_START(ArgList);
-
-	return NdrClientCall2( pStubDescriptor, pFormat, StartofStack );
-	}
-
-
-	The asm looks like:
-	lea         eax,[ebp+10h]
-	push        eax
-	push        dword ptr [ebp+0Ch]
-	push        dword ptr [ebp+8]
-	call        NdrClientCall2 (76C57590h)
-	add         esp,0Ch
-
-	this is the prototype:
-	CLIENT_CALL_RETURN RPC_VAR_ENTRY
-	NdrClientCall2(
-	PMIDL_STUB_DESC     pStubDescriptor,
-	PFORMAT_STRING      pFormat,
-	...
-	);
-	Upon entry here, ESP points to the caller return address (where the caller cleans the stack by adding 4 * the # of parms it pushed to ESP)
-	*/
-	_asm call pushvalue // call psuhvalue (which expects 1 param, but we don't push one, so it uses the curvalue on the stack which is the ret addr) to put return addr in our threadlocal std::stack
-	_asm call Real_NdrClientCall2   // call the real code (it's cdecl with variable # parms)
-
-	_asm push eax       // We're just Pushing here to decrement the stack by 4 to save space to put the orig return addr. This slot will be replaced by the orig ret addr
-	_asm push eax       // save real function's return value
-	_asm call popvalue  // get the original return address in eax
-	_asm mov[esp + 4], eax       // put the original ret addr on stack where the "ret" below will return correctly
-
-	_asm pop eax      // restore the real function's return value
-	_asm ret          // ret to caller
-}
+////_declspec (thread) // note: when this code runs in VS, random failures when initializing the std::stack in a TLS: the stack would be empty even when the prior line says push(). workaround: make the TLS point to a struct containing the stl::stack
+//std::stack<std::pair<LPVOID, DWORD>> _stackRetAddresses; // return address, TickCount
+//
+//void _stdcall pushvalue(LPVOID val)
+//{
+//	_stackRetAddresses.push(pair<LPVOID, DWORD>(val, GetTickCount()));
+//}
+//
+//LPVOID _stdcall popvalue()
+//{
+//	auto top = _stackRetAddresses.top();
+//	auto retAddr = top.first;
+//	auto elapsed = GetTickCount() - top.second;
+//	_stackRetAddresses.pop();
+//	DWORD stackSubType = 0;
+//	if (GetCurrentThreadId() == g_dwMainThread)
+//	{
+//		stackSubType = 0;
+//	}
+//	else
+//	{
+//		stackSubType = 1;
+//	}
+//	CollectStack(StackTypeRpc, stackSubType, elapsed, /*numFramesToSkip*/3);
+//	return retAddr;
+//}
+//
+//PVOID Real_NdrClientCall2;
+//_declspec(naked) void DetourNdrClientCall2()
+//{
+//	/*
+//	detouring NdrClientCall2 is a little complicated because it's CDECL. Wrapping (running code before/after the call to get elapsed time) is thus more complex
+//	https://msdn.microsoft.com/en-us/library/windows/desktop/aa374215(v=vs.85).aspx
+//	Network Data Representation (NDR) Engine
+//	A caller looks like:
+//
+//	CLIENT_CALL_RETURN RPC_VAR_ENTRY
+//	NdrClientCall4(
+//	PMIDL_STUB_DESC     pStubDescriptor,
+//	PFORMAT_STRING      pFormat,
+//	...
+//	)
+//	{
+//	RPCP_PAGED_CODE();
+//
+//	va_list                     ArgList;
+//
+//	//
+//	// On x86 we pass in a pointer to the first parameter, and expect that
+//	// the rest of the parameters are directly behind it on the stack. The
+//	// only way this silly assumption is true is if we disable optimization
+//	// in the stub. We will switch to passing in all the parameters the same
+//	// as in AMD64 and ARM. Due to back compat, we can't change NdrClientCall2,
+//	// so this is a copy of the AMD/ARM version of NdrClientCall2 only called
+//	// on x86 running Win8.1 or newer.
+//	//
+//	INIT_ARG( ArgList, pFormat);
+//	uchar *StartofStack = (uchar*)GET_STACK_START(ArgList);
+//
+//	return NdrClientCall2( pStubDescriptor, pFormat, StartofStack );
+//	}
+//
+//
+//	The asm looks like:
+//	lea         eax,[ebp+10h]
+//	push        eax
+//	push        dword ptr [ebp+0Ch]
+//	push        dword ptr [ebp+8]
+//	call        NdrClientCall2 (76C57590h)
+//	add         esp,0Ch
+//
+//	this is the prototype:
+//	CLIENT_CALL_RETURN RPC_VAR_ENTRY
+//	NdrClientCall2(
+//	PMIDL_STUB_DESC     pStubDescriptor,
+//	PFORMAT_STRING      pFormat,
+//	...
+//	);
+//	Upon entry here, ESP points to the caller return address (where the caller cleans the stack by adding 4 * the # of parms it pushed to ESP)
+//	*/
+//	_asm call pushvalue // call psuhvalue (which expects 1 param, but we don't push one, so it uses the curvalue on the stack which is the ret addr) to put return addr in our threadlocal std::stack
+//	_asm call Real_NdrClientCall2   // call the real code (it's cdecl with variable # parms)
+//
+//	_asm push eax       // We're just Pushing here to decrement the stack by 4 to save space to put the orig return addr. This slot will be replaced by the orig ret addr
+//	_asm push eax       // save real function's return value
+//	_asm call popvalue  // get the original return address in eax
+//	_asm mov[esp + 4], eax       // put the original ret addr on stack where the "ret" below will return correctly
+//
+//	_asm pop eax      // restore the real function's return value
+//	_asm ret          // ret to caller
+//}
 #endif _WIN64
 
 PVOID WINAPI MyHeapReAlloc( // no re-new
@@ -375,7 +379,7 @@ HMODULE WINAPI MyGetModuleHandleA(LPCSTR lpModuleName)
 	return g_real_GetModuleHandleA(lpModuleName);
 }
 
-decltype(&GetModuleFileNameA) g_real_GetModuleFileNameA; 
+decltype(&GetModuleFileNameA) g_real_GetModuleFileNameA;
 DWORD WINAPI MyGetModuleFileNameA(
 	_In_opt_ HMODULE hModule,
 	_Out_writes_to_(nSize, ((return < nSize) ? (return +1) : nSize)) LPSTR lpFilename,
@@ -387,24 +391,24 @@ DWORD WINAPI MyGetModuleFileNameA(
 }
 
 
-class myclass
-{
-public:
-	myclass()
-	{
-		_dwThreadId = GetCurrentThreadId();
-		_pMem = malloc(100);
-	}
-	DWORD _dwThreadId;
-	LPVOID _pMem;
-public:
-	~myclass()
-	{
-		delete _pMem;
-	}
-};
-
-thread_local myclass g_myclass;
+//class myclass
+//{
+//public:
+//	myclass()
+//	{
+//		_dwThreadId = GetCurrentThreadId();
+//		_pMem = malloc(100);
+//	}
+//	DWORD _dwThreadId;
+//	LPVOID _pMem;
+//public:
+//	~myclass()
+//	{
+//		delete _pMem;
+//	}
+//};
+//
+//thread_local myclass g_myclass;
 
 
 // To enable detours, they must already have been detoured much earlier, probably before this module has been loaded,
@@ -423,31 +427,31 @@ void HookInMyOwnVersion(BOOL fHook)
 
 	if (fHook)
 	{
-		if (fnRedirectDetour(DTF_MessageBoxA, MyMessageBoxA, (PVOID *)&g_real_MessageBoxA) != S_OK)
+		if (fnRedirectDetour(DTF_MessageBoxA, MyMessageBoxA, (PVOID*)&g_real_MessageBoxA) != S_OK)
 		{
 			VSASSERT(false, "Failed to redirect detour");
 		}
-		if (fnRedirectDetour(DTF_GetModuleHandleA, MyGetModuleHandleA, (PVOID *)&g_real_GetModuleHandleA) != S_OK)
+		if (fnRedirectDetour(DTF_GetModuleHandleA, MyGetModuleHandleA, (PVOID*)&g_real_GetModuleHandleA) != S_OK)
 		{
 			VSASSERT(false, "Failed to redirect detour");
 		}
-		if (fnRedirectDetour(DTF_GetModuleFileNameA, MyGetModuleFileNameA, (PVOID *)&g_real_GetModuleFileNameA) != S_OK)
+		if (fnRedirectDetour(DTF_GetModuleFileNameA, MyGetModuleFileNameA, (PVOID*)&g_real_GetModuleFileNameA) != S_OK)
 		{
 			VSASSERT(false, "Failed to redirect detour");
 		}
-		auto res = fnRedirectDetour(DTF_RtlAllocateHeap, MyRtlAllocateHeap, (PVOID *)&Real_RtlAllocateHeap);
+		auto res = fnRedirectDetour(DTF_RtlAllocateHeap, MyRtlAllocateHeap, (PVOID*)&Real_RtlAllocateHeap);
 		VSASSERT(res == S_OK, "Redirecting detour to allocate heap");
 
-		res = fnRedirectDetour(DTF_HeapReAlloc, MyHeapReAlloc, (PVOID *)&Real_HeapReAlloc);
+		res = fnRedirectDetour(DTF_HeapReAlloc, MyHeapReAlloc, (PVOID*)&Real_HeapReAlloc);
 		VSASSERT(res == S_OK, "Redirecting detour to heapReAlloc");
 
 
-		res = fnRedirectDetour(DTF_RtlFreeHeap, MyRtlFreeHeap, (PVOID *)&Real_RtlFreeHeap);
+		res = fnRedirectDetour(DTF_RtlFreeHeap, MyRtlFreeHeap, (PVOID*)&Real_RtlFreeHeap);
 		VSASSERT(res == S_OK, "Redirecting detour to free heap");
 
 #ifndef _WIN64
-		res = fnRedirectDetour(DTF_NdrClientCall2, DetourNdrClientCall2, (PVOID*)&Real_NdrClientCall2);
-		VSASSERT(res == S_OK, "Redirecting detour to MyNdrClientCall2");
+		//res = fnRedirectDetour(DTF_NdrClientCall2, DetourNdrClientCall2, (PVOID*)&Real_NdrClientCall2);
+		//VSASSERT(res == S_OK, "Redirecting detour to MyNdrClientCall2");
 #endif _WIN64
 
 	}
@@ -593,17 +597,17 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 		myByteAllocator allocatorByte(alloc_type);
 		auto p = new (allocatorByte.allocate(sizeof(MyTlsData))) MyTlsData();
-		mymap[(DWORD)1] = (MyTlsData *)p;
+		mymap[(DWORD)1] = (MyTlsData*)p;
 		auto q = new (allocatorByte.allocate(sizeof(MyTlsData))) MyTlsData();
-		mymap[(DWORD)2] = (MyTlsData *)q;
+		mymap[(DWORD)2] = (MyTlsData*)q;
 		auto res = mymap.find(1);
 		res->second->~MyTlsData();
-		allocatorByte.deallocate((BYTE *)res->second, sizeof(*res->second));
+		allocatorByte.deallocate((BYTE*)res->second, sizeof(*res->second));
 		mymap.erase(res);
-		for (auto &x : mymap)
+		for (auto& x : mymap)
 		{
 			x.second->~MyTlsData();
-			allocatorByte.deallocate((BYTE *)x.second, sizeof(*x.second));
+			allocatorByte.deallocate((BYTE*)x.second, sizeof(*x.second));
 		}
 		mymap.clear();
 	}
@@ -630,25 +634,25 @@ CLINKAGE void EXPORT StartVisualStudio()
 	g_dwMainThread = GetCurrentThreadId();
 
 	splitStr(g_strHeapAllocSizesToCollect, ',', [](wstring valPair)
-	{
-		auto ndxColon = valPair.find(':');
-		auto heapSize = _wtol(valPair.substr(0, ndxColon).c_str());
-		auto heapThresh = _wtol(valPair.substr(ndxColon + 1).c_str());
-		g_heapAllocSizes.push_back(HeapSizeData(heapSize, heapThresh));
+		{
+			auto ndxColon = valPair.find(':');
+			auto heapSize = _wtol(valPair.substr(0, ndxColon).c_str());
+			auto heapThresh = _wtol(valPair.substr(ndxColon + 1).c_str());
+			g_heapAllocSizes.push_back(HeapSizeData(heapSize, heapThresh));
 
-	});
+		});
 	// add one more at the end for any allocation > the min threshold
 	g_heapAllocSizes.push_back(HeapSizeData(g_HeapAllocSizeMinValue, 0));
 
 	SIZE_T sizeAlloc = 72;
 	auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [sizeAlloc](HeapSizeData data)
-	{
-		if (data._nSize == sizeAlloc)
 		{
-			return true;
-		}
-		return false;
-	});
+			if (data._nSize == sizeAlloc)
+			{
+				return true;
+			}
+			return false;
+		});
 	if (it == g_heapAllocSizes.end())
 	{
 		auto x = 2;

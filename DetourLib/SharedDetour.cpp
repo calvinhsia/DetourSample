@@ -322,7 +322,7 @@ private:
 		ATTACH(&g_arrDetourTableEntry[DTF_HeapReAlloc].RealFunction, MyStubHeapReAlloc);
 
 #ifndef _WIN64
-		ATTACH(&g_arrDetourTableEntry[DTF_NdrClientCall2].RealFunction, MyStubNdrClientCall2);
+//		ATTACH(&g_arrDetourTableEntry[DTF_NdrClientCall2].RealFunction, MyStubNdrClientCall2);
 #endif _WIN64
 
 
@@ -348,7 +348,7 @@ private:
 		DETACH(&g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction, MyStubRtlFreeHeap);
 
 #ifndef _WIN64
-		DETACH(&g_arrDetourTableEntry[DTF_NdrClientCall2].RealFunction, MyStubNdrClientCall2);
+//		DETACH(&g_arrDetourTableEntry[DTF_NdrClientCall2].RealFunction, MyStubNdrClientCall2);
 #endif _WIN64
 
 
