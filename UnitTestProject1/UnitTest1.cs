@@ -1,4 +1,5 @@
 ﻿using System;
+using System.CodeDom;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -8,10 +9,58 @@ namespace UnitTestProject1
 
     [ComVisible(true)]
     [Guid("45BAEA8A-59DC-4417-9BD5-CC4ED2A10C53")] //{45BAEA8A-59DC-4417-9BD5-CC4ED2A10C53}
+    [StructLayout(LayoutKind.Sequential)]
     public struct HeapCollectStats
     {
         public int nStacksCollected;
         public int MyRtlAllocateHeapCount;
+        public int NumDetailRecords;
+        private HeapCollectStatDetail[] details; //ignore: Type library exporter warning processing 'UnitTestProject1.HeapCollectStats.details, UnitTestProject1'. Warning: The public struct contains one or more non-public fields that will be exported.
+        //        [MarshalAs(UnmanagedType.ByValArray, ArraySubType = UnmanagedType.Struct)]
+
+        public HeapCollectStats(string strStacksToCollect) : this()
+        {
+            var splt = strStacksToCollect.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            int num = splt.Length;
+            NumDetailRecords = num;
+            details = new HeapCollectStatDetail[NumDetailRecords];
+            for (int i = 0; i < NumDetailRecords; i++)
+            {
+                var detsplt = splt[i].Split(':'); // size/thresh
+                details[i].AllocSize = int.Parse(detsplt[0]);
+                details[i].AllocThresh = int.Parse(detsplt[1]);
+            }
+        }
+        public IntPtr GetPointer() // must be freed
+        {
+            var addr = Marshal.AllocHGlobal(Marshal.SizeOf(this) + NumDetailRecords * Marshal.SizeOf<HeapCollectStatDetail>());
+            Marshal.StructureToPtr<HeapCollectStats>(this, addr, fDeleteOld: false);
+            for (int i = 0; i < NumDetailRecords; i++)
+            {
+                var a = addr + Marshal.SizeOf<HeapCollectStats>() + i * Marshal.SizeOf<HeapCollectStatDetail>();
+                Marshal.StructureToPtr<HeapCollectStatDetail>(details[i], a, fDeleteOld: false);
+            }
+            return addr;
+        }
+        public static HeapCollectStats FromPointer(IntPtr addr)
+        {
+            var stats = Marshal.PtrToStructure<HeapCollectStats>(addr);
+            stats.details = new HeapCollectStatDetail[stats.NumDetailRecords];
+            for (int i = 0; i < stats.NumDetailRecords; i++)
+            {
+                var a = addr + Marshal.SizeOf<HeapCollectStats>() + i * Marshal.SizeOf<HeapCollectStatDetail>();
+                stats.details[i] = Marshal.PtrToStructure<HeapCollectStatDetail>(a);
+            }
+            return stats;
+        }
+    }
+    [ComVisible(true)]
+    [Guid("1D4B9F95-CAB5-4CB0-8F85-F9599DD3689B")]//{1D4B9F95-CAB5-4CB0-8F85-F9599DD3689B}
+    public struct HeapCollectStatDetail
+    {
+        public int AllocSize;
+        public int AllocThresh;
+        public int NumStacks;
     }
 
 
@@ -24,7 +73,7 @@ namespace UnitTestProject1
         void StartDetours(out IntPtr parm2);
         void SetHeapCollectParams(string HeapSizesToCollect, int NumFramesToCapture, int HeapAllocSizeMinValue, int StlAllocLimit);
 
-        void GetHeapCollectionStats(ref HeapCollectStats HeapStats);
+        void GetHeapCollectionStats(IntPtr HeapStats);
         void StopDetours(IntPtr pDetours);
     }
 
@@ -71,8 +120,8 @@ namespace UnitTestProject1
                 var obj = GetTestHeapStacks(oInterop);
                 var sb = new StringBuilder(500);
                 int nSizeSpecial = 1027;
-                var strStacksToCollect = $"8:271 , 72:220,{nSizeSpecial}:0";
-                strStacksToCollect = "";
+                var strStacksToCollect = $"16:16, 32:32,{nSizeSpecial}:0";
+                //                strStacksToCollect = "";
                 obj.SetHeapCollectParams(strStacksToCollect, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 2);
                 obj.StartDetours(out var pDetours);
                 int nIter = 100000;
@@ -81,13 +130,16 @@ namespace UnitTestProject1
                     var x = Heap.HeapAlloc(Heap.GetProcessHeap(), 0, nSizeSpecial);
                     Heap.HeapFree(Heap.GetProcessHeap(), 0, x);
                 }
-
-                var heapStats = new HeapCollectStats();
                 obj.StopDetours(pDetours);
-                obj.GetHeapCollectionStats(ref heapStats);
+
+                var heapStats = new HeapCollectStats(strStacksToCollect);
+                var ptrHeapStats = heapStats.GetPointer();
+                obj.GetHeapCollectionStats(ptrHeapStats);
+                heapStats = HeapCollectStats.FromPointer(ptrHeapStats);
                 Assert.IsTrue(heapStats.MyRtlAllocateHeapCount > nIter, $"Expected > {nIter}, got {heapStats.MyRtlAllocateHeapCount}");
+                Marshal.FreeHGlobal(ptrHeapStats);
                 Marshal.ReleaseComObject(obj);
-//                Assert.Fail($"#HeapAlloc={heapStats.MyRtlAllocateHeapCount}");
+                //                Assert.Fail($"#HeapAlloc={heapStats.MyRtlAllocateHeapCount}");
             }
             oInterop.Dispose();
         }

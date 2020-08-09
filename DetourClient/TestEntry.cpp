@@ -102,9 +102,15 @@ public:
 		return S_OK;
 	}
 	STDMETHOD(raw_GetHeapCollectionStats)(
-		struct HeapCollectStats* pHeapStats)
+		long ptrHeapStats)
 	{
+		auto pHeapStats = (HeapCollectStats*)ptrHeapStats;
 		pHeapStats->MyRtlAllocateHeapCount = g_MyRtlAllocateHeapCount;
+		for (int i = 0; i < pHeapStats->NumDetailRecords; i++)
+		{
+			auto pHeapDetail = (HeapCollectStatDetail*)(ptrHeapStats + sizeof(HeapCollectStats) + i * sizeof(HeapCollectStatDetail));
+			pHeapDetail->NumStacks = i;
+		}
 		return S_OK;
 	}
 
