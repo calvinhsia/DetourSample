@@ -66,25 +66,30 @@ namespace UnitTestProject1
         [TestMethod]
         public void TestCollectStacks()
         {
-            using (var oInterop = new Interop())
+            var oInterop = new Interop();
             {
                 var obj = GetTestHeapStacks(oInterop);
                 var sb = new StringBuilder(500);
-                obj.StartDetours(out var pDetours);
                 int nSizeSpecial = 1027;
-                obj.SetHeapCollectParams($"8:271 , 72:220,{nSizeSpecial}:0", NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 2);
-                for (int i = 0; i < 100; i++)
+                var strStacksToCollect = $"8:271 , 72:220,{nSizeSpecial}:0";
+                strStacksToCollect = "";
+                obj.SetHeapCollectParams(strStacksToCollect, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 2);
+                obj.StartDetours(out var pDetours);
+                int nIter = 100000;
+                for (int i = 0; i < nIter; i++)
                 {
                     var x = Heap.HeapAlloc(Heap.GetProcessHeap(), 0, nSizeSpecial);
                     Heap.HeapFree(Heap.GetProcessHeap(), 0, x);
                 }
 
                 var heapStats = new HeapCollectStats();
-                obj.GetHeapCollectionStats(ref heapStats);
                 obj.StopDetours(pDetours);
+                obj.GetHeapCollectionStats(ref heapStats);
+                Assert.IsTrue(heapStats.MyRtlAllocateHeapCount > nIter, $"Expected > {nIter}, got {heapStats.MyRtlAllocateHeapCount}");
                 Marshal.ReleaseComObject(obj);
-                Assert.Fail($"#HeapAlloc={heapStats.MyRtlAllocateHeapCount}");
+//                Assert.Fail($"#HeapAlloc={heapStats.MyRtlAllocateHeapCount}");
             }
+            oInterop.Dispose();
         }
 
 

@@ -249,8 +249,8 @@ public:
 private:
 	void InstallTheDetours()
 	{
-		_ASSERT_EXPR(g_arrDetourTableEntry[DTF_MAX - 1].RealFunction == 0, L"table should have 0");
-		_ASSERT_EXPR(g_arrDetourTableEntry[DTF_MAX - 1].RedirectedFunction == 0, L"table should have 0");
+		_ASSERT_EXPR(g_arrDetourTableEntry[DTF_MAX - 1].RealFunction == 0, L"table should have 0 detour real funcrtions");
+		_ASSERT_EXPR(g_arrDetourTableEntry[DTF_MAX - 1].RedirectedFunction == 0, L"table should have 0 detour redirected");
 
 		// This is required because on Win7 ole32 directly links to the Kernel32 implementations of these functions
 		// and doesn't use Advapi

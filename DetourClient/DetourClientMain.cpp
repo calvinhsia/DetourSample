@@ -570,9 +570,11 @@ void SetHeapSizesToCollect(wstring Sizes)
 			g_heapAllocSizes.push_back(HeapSizeData(heapSize, heapThresh));
 
 		});
-	// add one more at the end for any allocation > the min threshold
-	g_heapAllocSizes.push_back(HeapSizeData(g_HeapAllocSizeMinValue, 0));
-
+	if (g_HeapAllocSizeMinValue > 0)
+	{
+		// add one more at the end for any allocation > the min threshold
+		g_heapAllocSizes.push_back(HeapSizeData(g_HeapAllocSizeMinValue, 0));
+	}
 }
 
 
