@@ -1,7 +1,10 @@
 ﻿using System;
 using System.CodeDom;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace UnitTestProject1
@@ -15,7 +18,7 @@ namespace UnitTestProject1
         public int nStacksCollected;
         public int MyRtlAllocateHeapCount;
         public int NumDetailRecords;
-        private HeapCollectStatDetail[] details; //ignore: Type library exporter warning processing 'UnitTestProject1.HeapCollectStats.details, UnitTestProject1'. Warning: The public struct contains one or more non-public fields that will be exported.
+        public HeapCollectStatDetail[] details; //ignore: Type library exporter warning processing 'UnitTestProject1.HeapCollectStats.details, UnitTestProject1'. Warning: The public struct contains one or more non-public fields that will be exported.
         //        [MarshalAs(UnmanagedType.ByValArray, ArraySubType = UnmanagedType.Struct)]
 
         public HeapCollectStats(string strStacksToCollect) : this()
@@ -113,9 +116,9 @@ namespace UnitTestProject1
         }
 
         [TestMethod]
-        public void TestCollectStacks()
+        public async Task TestCollectStacks()
         {
-            var oInterop = new Interop();
+            using (var oInterop = new Interop())
             {
                 var obj = GetTestHeapStacks(oInterop);
                 var sb = new StringBuilder(500);
@@ -124,24 +127,36 @@ namespace UnitTestProject1
                 //                strStacksToCollect = "";
                 obj.SetHeapCollectParams(strStacksToCollect, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 2);
                 obj.StartDetours(out var pDetours);
-                int nIter = 100000;
-                for (int i = 0; i < nIter; i++)
+                int nIter = 10000;
+                int nThreads = 60;
+                var lstTasks = new List<Task>();
+                for (int iThread = 0; iThread < nThreads; iThread++)
                 {
-                    var x = Heap.HeapAlloc(Heap.GetProcessHeap(), 0, nSizeSpecial);
-                    Heap.HeapFree(Heap.GetProcessHeap(), 0, x);
+                    var task = Task.Run(() =>
+                    {
+                        for (int i = 0; i < nIter; i++)
+                        {
+                            var x = Heap.HeapAlloc(Heap.GetProcessHeap(), 0, nSizeSpecial);
+                            Heap.HeapFree(Heap.GetProcessHeap(), 0, x);
+                        }
+                    });
+                    lstTasks.Add(task);
                 }
+                await Task.WhenAll(lstTasks);
                 obj.StopDetours(pDetours);
 
                 var heapStats = new HeapCollectStats(strStacksToCollect);
                 var ptrHeapStats = heapStats.GetPointer();
                 obj.GetHeapCollectionStats(ptrHeapStats);
                 heapStats = HeapCollectStats.FromPointer(ptrHeapStats);
-                Assert.IsTrue(heapStats.MyRtlAllocateHeapCount > nIter, $"Expected > {nIter}, got {heapStats.MyRtlAllocateHeapCount}");
+                Assert.IsTrue(heapStats.MyRtlAllocateHeapCount > nIter * nThreads, $"Expected > {nIter * nThreads}, got {heapStats.MyRtlAllocateHeapCount}");
+                var det = heapStats.details.Where(s => s.AllocSize == nSizeSpecial).Single();
+                Assert.IsTrue(det.NumStacks >= nIter, $"Expected numstacks collected > {nIter}");
+
                 Marshal.FreeHGlobal(ptrHeapStats);
                 Marshal.ReleaseComObject(obj);
                 //                Assert.Fail($"#HeapAlloc={heapStats.MyRtlAllocateHeapCount}");
             }
-            oInterop.Dispose();
         }
 
 

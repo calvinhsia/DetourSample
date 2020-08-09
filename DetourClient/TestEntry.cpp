@@ -109,7 +109,13 @@ public:
 		for (int i = 0; i < pHeapStats->NumDetailRecords; i++)
 		{
 			auto pHeapDetail = (HeapCollectStatDetail*)(ptrHeapStats + sizeof(HeapCollectStats) + i * sizeof(HeapCollectStatDetail));
-			pHeapDetail->NumStacks = i;
+			auto sizeAlloc = pHeapDetail->AllocSize;
+			auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [sizeAlloc](HeapSizeData data)
+				{
+					return data._nSize == sizeAlloc;
+				});
+			VSASSERT(it != g_heapAllocSizes.end(), "size not found?");
+			pHeapDetail->NumStacks = it->_nStacksCollected;
 		}
 		return S_OK;
 	}
