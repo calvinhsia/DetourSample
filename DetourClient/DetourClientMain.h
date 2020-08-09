@@ -13,8 +13,6 @@
 #include <functional>
 #include <algorithm>
 
-#define VSASSERT(a,b) _ASSERT_EXPR(a,L##b)
-
 // the different types of callstacks we collect
 typedef enum {
 	StackTypeHeapAlloc = 0,
@@ -53,12 +51,19 @@ extern std::vector<HeapSizeData> g_heapAllocSizes;
 
 extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
 
-extern WCHAR * g_strHeapAllocSizesToCollect;
 extern int g_NumFramesTocapture;
 extern int g_HeapAllocSizeMinValue;
 extern long g_MyStlAllocLimit;
+extern int g_MyRtlAllocateHeapCount;
 
+void SetHeapSizesToCollect(std::wstring Sizes);
 
+extern decltype(&GetModuleFileNameA) g_real_GetModuleFileNameA;
+DWORD WINAPI MyGetModuleFileNameA(
+    _In_opt_ HMODULE hModule,
+    _Out_writes_to_(nSize, ((return < nSize) ? (return +1) : nSize)) LPSTR lpFilename,
+    _In_ DWORD nSize
+);
 
 struct StlAllocStats
 {
@@ -78,6 +83,22 @@ extern StlAllocStats g_MyStlAllocStats;
 // create a heap that stores our private data: MyTlsData and Call stacks
 extern HANDLE g_hHeapDetourData;
 
+
+extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
+extern pfnHeapReAlloc Real_HeapReAlloc;
+extern pfnRtlFreeHeap Real_RtlFreeHeap;
+PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size);
+BOOL WINAPI MyRtlFreeHeap(
+    HANDLE hHeap,
+    DWORD dwFlags,
+    LPVOID lpMem
+);
+PVOID WINAPI MyHeapReAlloc( // no re-new
+    HANDLE hHeap,
+    DWORD dwFlags,
+    LPVOID lpMem,
+    SIZE_T dwBytes
+);
 
 /*
 using a normal Critsect causes a heap alloc for each "deferred critical section".

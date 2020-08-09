@@ -215,13 +215,15 @@ echo done</Command>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\Detours\detours.cpp" />
-    <ClCompile Include="..\Detours\disasm.cpp" />
-    <ClCompile Include="..\Detours\modules.cpp" />
     <ClCompile Include="DetourSharedBaseMain.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DetourShared.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DetourLib\DetourLib.vcxproj">
+      <Project>{a1426c5a-9efd-446b-b1e4-65d975fe0aa0}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

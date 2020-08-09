@@ -6,8 +6,7 @@
 
 using namespace std;
 
-// these are settable by remote settings
-WCHAR* g_strHeapAllocSizesToCollect = L"8:271 , 72:220, 1031:40";
+
 int g_NumFramesTocapture = 20;
 int g_HeapAllocSizeMinValue = 0;// 1048576;
 long g_MyStlAllocLimit = 65536 * 1;
@@ -16,6 +15,9 @@ long g_MyStlAllocLimit = 65536 * 1;
 // our private heap
 HANDLE g_hHeapDetourData;
 
+pfnRtlAllocateHeap Real_RtlAllocateHeap;
+pfnHeapReAlloc Real_HeapReAlloc;
+pfnRtlFreeHeap Real_RtlFreeHeap;
 
 vector<HeapSizeData> g_heapAllocSizes;
 
@@ -25,7 +27,7 @@ CComAutoCriticalSection g_critSectHeapAlloc;
 
 typedef std::vector<PVOID, MySTLAlloc<PVOID, StlAllocUseCallStackHeap>> vecFrames;
 #include "winnt.h"
-#include "Windows.h""
+#include "Windows.h"
 
 // Collects the callstack and calculates the stack hash
 // represents a single call stack and how often the identical stack occurs
@@ -127,7 +129,6 @@ struct CallStack
 			}
 			if (pHash != nullptr)
 			{
-				pHash = 0;
 				*pHash = hash;
 			}
 		}
@@ -240,6 +241,7 @@ StlAllocStats g_MyStlAllocStats;
 
 void InitCollectStacks()
 {
+	VSASSERT(g_hHeapDetourData == nullptr, "Should be null");
 	// create a heap that stores our private data: MyTlsData and Call stacks
 	g_hHeapDetourData = HeapCreate(/*options*/0, /*dwInitialSize*/65536,/*dwMaxSize*/ 0);
 
