@@ -1,9 +1,12 @@
 ﻿using System;
 using System.CodeDom;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -15,10 +18,27 @@ namespace UnitTestProject1
     [StructLayout(LayoutKind.Sequential)]
     public struct HeapCollectStats
     {
-        public int nStacksCollected;
-        public int MyRtlAllocateHeapCount;
+        public int NumUniqueStacks;
+        public int MyStlAllocLimit;
+        public int MyStlAllocCurrentTotalAlloc;
+        public int MyStlAllocBytesEverAlloc;
+        public int MyStlTotBytesEverFreed;
+        public int nTotNumHeapAllocs; // heapallocs of specified size
+        public int MyRtlAllocateHeapCount; // total # of heapallocs
         public int NumDetailRecords;
+        public bool fReachedMemLimit;
         public HeapCollectStatDetail[] details; //ignore: Type library exporter warning processing 'UnitTestProject1.HeapCollectStats.details, UnitTestProject1'. Warning: The public struct contains one or more non-public fields that will be exported.
+        public override string ToString()
+        {
+            return $@"{nameof(NumUniqueStacks)}={NumUniqueStacks:n0} 
+                    {nameof(MyStlAllocLimit)}={MyStlAllocLimit:n0} 
+                    {nameof(MyStlAllocCurrentTotalAlloc)}={MyStlAllocCurrentTotalAlloc:n0} 
+                    {nameof(MyStlAllocBytesEverAlloc)}={MyStlAllocBytesEverAlloc:n0} 
+                    {nameof(MyStlTotBytesEverFreed)}={MyStlTotBytesEverFreed:n0} 
+                    {nameof(MyRtlAllocateHeapCount)}={MyRtlAllocateHeapCount:n0} 
+                    {nameof(nTotNumHeapAllocs)}={nTotNumHeapAllocs:n0} 
+                    {nameof(fReachedMemLimit)}={fReachedMemLimit}";
+        }
         //        [MarshalAs(UnmanagedType.ByValArray, ArraySubType = UnmanagedType.Struct)]
 
         public HeapCollectStats(string strStacksToCollect) : this()
@@ -63,7 +83,11 @@ namespace UnitTestProject1
     {
         public int AllocSize;
         public int AllocThresh;
-        public int NumStacks;
+        public int NumStacksCollected;
+        public override string ToString()
+        {
+            return $"{AllocSize}:{AllocThresh} NumStacksCollected: {NumStacksCollected:n0}";
+        }
     }
 
 
@@ -76,14 +100,22 @@ namespace UnitTestProject1
         void StartDetours(out IntPtr parm2);
         void SetHeapCollectParams(string HeapSizesToCollect, int NumFramesToCapture, int HeapAllocSizeMinValue, int StlAllocLimit);
 
-        void GetHeapCollectionStats(IntPtr HeapStats);
-        void StopDetours(IntPtr pDetours);
+        void StopDetours(IntPtr pDetours, IntPtr HeapStats);
     }
 
     [TestClass]
     public class UnitTest1
     {
+        Random _random = new Random(1);
         Guid guidComClass = new Guid("A90F9940-53C9-45B9-B67B-EE2EDE51CC00");
+
+        public TestContext TestContext { get; set; }
+
+        public void LogMessage(string msg)
+        {
+            msg = DateTime.Now.ToString("hh:mm:ss:fff") + $" {Thread.CurrentThread.ManagedThreadId} " + msg;
+            TestContext.WriteLine(msg);
+        }
         ITestHeapStacks GetTestHeapStacks(Interop oInterop)
         {
             var hr = oInterop.CoCreateFromFile("DetourClient.dll", guidComClass, typeof(ITestHeapStacks).GUID, out var pObject);
@@ -110,7 +142,7 @@ namespace UnitTestProject1
 
                     Assert.AreEqual(str, "StringInGotStr");
                 }
-                obj.StopDetours(pDetours);
+                obj.StopDetours(pDetours, HeapStats: IntPtr.Zero);
                 Marshal.ReleaseComObject(obj);
             }
         }
@@ -125,33 +157,52 @@ namespace UnitTestProject1
                 int nSizeSpecial = 1027;
                 var strStacksToCollect = $"16:16, 32:32,{nSizeSpecial}:0";
                 //                strStacksToCollect = "";
-                obj.SetHeapCollectParams(strStacksToCollect, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 2);
+                obj.SetHeapCollectParams(strStacksToCollect, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 20);
                 obj.StartDetours(out var pDetours);
                 int nIter = 10000;
                 int nThreads = 60;
                 var lstTasks = new List<Task>();
+                lstTasks.Add(Task.Run(() => doCSLife()));
+                var procHeap = Heap.GetProcessHeap();
+                var lstIntentionalLeaks = new List<IntPtr>();
                 for (int iThread = 0; iThread < nThreads; iThread++)
                 {
                     var task = Task.Run(() =>
                     {
                         for (int i = 0; i < nIter; i++)
                         {
-                            var x = Heap.HeapAlloc(Heap.GetProcessHeap(), 0, nSizeSpecial);
-                            Heap.HeapFree(Heap.GetProcessHeap(), 0, x);
+                            var x = Heap.HeapAlloc(procHeap, 0, nSizeSpecial);
+                            if (_random.Next(100) < 50)
+                            {
+                                lstIntentionalLeaks.Add(x);
+                            }
+                            else
+                            {
+                                Heap.HeapFree(procHeap, 0, x);
+                            }
                         }
                     });
                     lstTasks.Add(task);
                 }
                 await Task.WhenAll(lstTasks);
-                obj.StopDetours(pDetours);
-
                 var heapStats = new HeapCollectStats(strStacksToCollect);
                 var ptrHeapStats = heapStats.GetPointer();
-                obj.GetHeapCollectionStats(ptrHeapStats);
+                obj.StopDetours(pDetours, ptrHeapStats);
+
                 heapStats = HeapCollectStats.FromPointer(ptrHeapStats);
+                LogMessage($"Allocation stacks {heapStats}");
+                Array.ForEach<HeapCollectStatDetail>(heapStats.details, (d) =>
+                 {
+                     LogMessage($"  {d}");
+                 });
                 Assert.IsTrue(heapStats.MyRtlAllocateHeapCount > nIter * nThreads, $"Expected > {nIter * nThreads}, got {heapStats.MyRtlAllocateHeapCount}");
                 var det = heapStats.details.Where(s => s.AllocSize == nSizeSpecial).Single();
-                Assert.IsTrue(det.NumStacks >= nIter, $"Expected numstacks collected > {nIter}");
+                Assert.IsTrue(det.NumStacksCollected >= nIter, $"Expected numstacks collected ({det.NumStacksCollected}) > {nIter}");
+
+                foreach (var addr in lstIntentionalLeaks)
+                {
+                    Heap.HeapFree(procHeap, 0, addr);
+                }
 
                 Marshal.FreeHGlobal(ptrHeapStats);
                 Marshal.ReleaseComObject(obj);
@@ -159,6 +210,11 @@ namespace UnitTestProject1
             }
         }
 
+        //[TestMethod]
+        //public async Task TestDoCSLife()
+        //{
+        //    doCSLife();
+        //}
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [PreserveSig]
@@ -168,6 +224,17 @@ namespace UnitTestProject1
             [Out] StringBuilder lpFilename,
             [In][MarshalAs(UnmanagedType.U4)] int nSize
         );
+        void doCSLife()
+        {
+            LogMessage($"Doing cslife");
+            var csLife = new FileInfo(Path.Combine(Environment.CurrentDirectory, @"..\..\..\cslife.exe")).FullName;
+            var csLifeForm = Assembly.LoadFrom(csLife);
+            var typCSLife = csLifeForm.GetTypes().Where(t => t.Name == "Form1").First();
+            var showDialogMeth = typCSLife.GetMethod("ShowDialog", new Type[] { });
+            var form = Activator.CreateInstance(typCSLife);
+            showDialogMeth.Invoke(form, null);
+            LogMessage($"cslife done");
+        }
     }
     public class Heap
     {

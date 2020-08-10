@@ -101,32 +101,41 @@ public:
 		SetHeapSizesToCollect(HeapSizesToCollect);
 		return S_OK;
 	}
-	STDMETHOD(raw_GetHeapCollectionStats)(
-		long ptrHeapStats)
-	{
-		auto pHeapStats = (HeapCollectStats*)ptrHeapStats;
-		pHeapStats->MyRtlAllocateHeapCount = g_MyRtlAllocateHeapCount;
-		for (int i = 0; i < pHeapStats->NumDetailRecords; i++)
-		{
-			auto pHeapDetail = (HeapCollectStatDetail*)(ptrHeapStats + sizeof(HeapCollectStats) + i * sizeof(HeapCollectStatDetail));
-			auto sizeAlloc = pHeapDetail->AllocSize;
-			auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [sizeAlloc](HeapSizeData data)
-				{
-					return data._nSize == sizeAlloc;
-				});
-			VSASSERT(it != g_heapAllocSizes.end(), "size not found?");
-			pHeapDetail->NumStacks = it->_nStacksCollected;
-		}
-		return S_OK;
-	}
 
 
-	STDMETHOD(raw_StopDetours)(long pparm2)
+	STDMETHOD(raw_StopDetours)(long pparm2, long ptrHeapStats)
 	{
 		HeapLock(GetProcessHeap());
 		StopDetouring((PVOID)pparm2);
-		UninitCollectStacks();
 		HeapUnlock(GetProcessHeap());
+		if (ptrHeapStats != 0)
+		{
+			// heapstats should be collected before uninit detours
+			auto pHeapStats = (HeapCollectStats*)ptrHeapStats;
+
+			pHeapStats->MyRtlAllocateHeapCount = g_MyRtlAllocateHeapCount;
+			pHeapStats->MyStlAllocLimit = g_MyStlAllocLimit;
+			pHeapStats->MyStlAllocCurrentTotalAlloc = g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap];
+			pHeapStats->MyStlAllocBytesEverAlloc = g_MyStlAllocStats._MyStlAllocBytesEverAlloc[StlAllocUseCallStackHeap];
+			pHeapStats->MyStlTotBytesEverFreed = g_MyStlAllocStats._MyStlTotBytesEverFreed[StlAllocUseCallStackHeap];
+			pHeapStats->NumUniqueStacks = g_MyStlAllocStats._NumUniqueStacks;
+			pHeapStats->nTotNumHeapAllocs = g_MyStlAllocStats._nTotNumHeapAllocs;
+			pHeapStats->fReachedMemLimit = g_MyStlAllocStats._fReachedMemLimit;
+			for (int i = 0; i < pHeapStats->NumDetailRecords; i++)
+			{
+				auto pHeapDetail = (HeapCollectStatDetail*)(ptrHeapStats + sizeof(HeapCollectStats) + i * sizeof(HeapCollectStatDetail));
+				auto sizeAlloc = pHeapDetail->AllocSize;
+				auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [sizeAlloc](HeapSizeData data)
+					{
+						return data._nSize == sizeAlloc;
+					});
+				VSASSERT(it != g_heapAllocSizes.end(), "size not found?");
+				pHeapDetail->NumStacksCollected = it->_nStacksCollected;
+				pHeapDetail->AllocThresh = it->_nThreshold;
+			}
+
+		}
+		UninitCollectStacks();
 		return S_OK;
 	}
 };
