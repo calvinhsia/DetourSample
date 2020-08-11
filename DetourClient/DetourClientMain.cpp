@@ -227,6 +227,48 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 }
 
 
+PVOID WINAPI MyHeapReAlloc( // no re-new
+	HANDLE hHeap,
+	DWORD dwFlags,
+	LPVOID lpMem,
+	SIZE_T dwBytes
+)
+{
+	bool IsTracked = false;
+	PVOID pNewMem;
+
+	//LPVOID pBlock = (PBYTE)lpMem - nExtraBytes;
+	//if (((PDWORD)pBlock)[0] == MySignature)
+	//{
+	//    DWORD dwSizeAlloc = ((PDWORD)pBlock)[1];
+	//    if (UnCollectStack(dwSizeAlloc))
+	//    {
+	//        IsTracked = true;
+
+	//        pNewMem = MyRtlAllocateHeap(hHeap, dwFlags, dwBytes);
+	//        memmove(pNewMem, lpMem, dwBytes < dwSizeAlloc ? dwBytes : dwSizeAlloc);
+	//    }
+	//}
+	if (!IsTracked)
+	{
+		pNewMem = Real_HeapReAlloc(hHeap, dwFlags, lpMem, dwBytes);
+	}
+	return pNewMem;
+}
+
+
+BOOL WINAPI MyRtlFreeHeap(
+	HANDLE hHeap,
+	DWORD dwFlags,
+	LPVOID lpMem
+)
+{
+	auto res = Real_RtlFreeHeap(hHeap, dwFlags, lpMem);
+	return res;
+}
+
+
+
 #ifndef _WIN64
 
 ////_declspec (thread) // note: when this code runs in VS, random failures when initializing the std::stack in a TLS: the stack would be empty even when the prior line says push(). workaround: make the TLS point to a struct containing the stl::stack
@@ -322,46 +364,6 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 //}
 #endif _WIN64
 
-PVOID WINAPI MyHeapReAlloc( // no re-new
-	HANDLE hHeap,
-	DWORD dwFlags,
-	LPVOID lpMem,
-	SIZE_T dwBytes
-)
-{
-	bool IsTracked = false;
-	PVOID pNewMem;
-
-	//LPVOID pBlock = (PBYTE)lpMem - nExtraBytes;
-	//if (((PDWORD)pBlock)[0] == MySignature)
-	//{
-	//    DWORD dwSizeAlloc = ((PDWORD)pBlock)[1];
-	//    if (UnCollectStack(dwSizeAlloc))
-	//    {
-	//        IsTracked = true;
-
-	//        pNewMem = MyRtlAllocateHeap(hHeap, dwFlags, dwBytes);
-	//        memmove(pNewMem, lpMem, dwBytes < dwSizeAlloc ? dwBytes : dwSizeAlloc);
-	//    }
-	//}
-	if (!IsTracked)
-	{
-		pNewMem = Real_HeapReAlloc(hHeap, dwFlags, lpMem, dwBytes);
-	}
-	return pNewMem;
-}
-
-
-BOOL WINAPI MyRtlFreeHeap(
-	HANDLE hHeap,
-	DWORD dwFlags,
-	LPVOID lpMem
-)
-{
-	auto res = Real_RtlFreeHeap(hHeap, dwFlags, lpMem);
-	return res;
-}
-
 decltype(&MessageBoxA) g_real_MessageBoxA;
 int WINAPI MyMessageBoxA(
 	_In_opt_ HWND hWnd,
@@ -423,7 +425,10 @@ void HookInMyOwnVersion(BOOL fHook)
 	HMODULE hmDevenv = GetModuleHandleA("DetourLib.dll");
 
 	//	g_mapStacks = new (malloc(sizeof(mapStacks)) mapStacks(MySTLAlloc < pair<const SIZE_T, vecStacks>(GetProcessHeap());
-
+	if (hmDevenv == 0)
+	{
+		return;
+	}
 	auto fnRedirectDetour = reinterpret_cast<pfnRedirectDetour>(GetProcAddress(hmDevenv, REDIRECTDETOUR));
 	VSASSERT(fnRedirectDetour != nullptr, "Failed to get RedirectDetour");
 

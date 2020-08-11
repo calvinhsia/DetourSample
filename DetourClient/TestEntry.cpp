@@ -66,7 +66,10 @@ public:
 		HMODULE hmDevenv = GetModuleHandleA("DetourLib.dll");
 
 		//	g_mapStacks = new (malloc(sizeof(mapStacks)) mapStacks(MySTLAlloc < pair<const SIZE_T, vecStacks>(GetProcessHeap());
-
+		if (hmDevenv == 0)
+		{
+			return E_FAIL;
+		}
 		auto fnRedirectDetour = reinterpret_cast<pfnRedirectDetour>(GetProcAddress(hmDevenv, REDIRECTDETOUR));
 		VSASSERT(fnRedirectDetour != nullptr, "Failed to get RedirectDetour");
 		auto res = fnRedirectDetour(DTF_GetModuleFileNameA, MyGetModuleFileNameA, (PVOID*)&g_real_GetModuleFileNameA);
@@ -120,6 +123,9 @@ public:
 			pHeapStats->MyStlTotBytesEverFreed = g_MyStlAllocStats._MyStlTotBytesEverFreed[StlAllocUseCallStackHeap];
 			pHeapStats->NumUniqueStacks = g_MyStlAllocStats._NumUniqueStacks;
 			pHeapStats->nTotNumHeapAllocs = g_MyStlAllocStats._nTotNumHeapAllocs;
+			pHeapStats->nTotFramesCollected = g_MyStlAllocStats._nTotFramesCollected;
+			pHeapStats->TotNumBytesHeapAlloc = g_MyStlAllocStats._TotNumBytesHeapAlloc;
+			pHeapStats->NumStacksMissed = g_MyStlAllocStats._NumStacksMissed[StackTypeHeapAlloc];
 			pHeapStats->fReachedMemLimit = g_MyStlAllocStats._fReachedMemLimit;
 			for (int i = 0; i < pHeapStats->NumDetailRecords; i++)
 			{

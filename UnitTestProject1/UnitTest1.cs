@@ -25,18 +25,24 @@ namespace UnitTestProject1
         public int MyStlTotBytesEverFreed;
         public int nTotNumHeapAllocs; // heapallocs of specified size
         public int MyRtlAllocateHeapCount; // total # of heapallocs
+        public Int64 TotNumBytesHeapAlloc;
         public int NumDetailRecords;
+        public int nTotFramesCollected;
+        public int NumStacksMissed;
         public bool fReachedMemLimit;
         public HeapCollectStatDetail[] details; //ignore: Type library exporter warning processing 'UnitTestProject1.HeapCollectStats.details, UnitTestProject1'. Warning: The public struct contains one or more non-public fields that will be exported.
         public override string ToString()
         {
             return $@"{nameof(NumUniqueStacks)}={NumUniqueStacks:n0} 
                     {nameof(MyStlAllocLimit)}={MyStlAllocLimit:n0} 
+                    {nameof(nTotNumHeapAllocs)}={nTotNumHeapAllocs:n0} 
                     {nameof(MyStlAllocCurrentTotalAlloc)}={MyStlAllocCurrentTotalAlloc:n0} 
                     {nameof(MyStlAllocBytesEverAlloc)}={MyStlAllocBytesEverAlloc:n0} 
                     {nameof(MyStlTotBytesEverFreed)}={MyStlTotBytesEverFreed:n0} 
                     {nameof(MyRtlAllocateHeapCount)}={MyRtlAllocateHeapCount:n0} 
-                    {nameof(nTotNumHeapAllocs)}={nTotNumHeapAllocs:n0} 
+                    {nameof(nTotFramesCollected)}={nTotFramesCollected:n0} 
+                    {nameof(NumStacksMissed)}={NumStacksMissed:n0} 
+                    {nameof(TotNumBytesHeapAlloc)}={TotNumBytesHeapAlloc:n0} 
                     {nameof(fReachedMemLimit)}={fReachedMemLimit}";
         }
         //        [MarshalAs(UnmanagedType.ByValArray, ArraySubType = UnmanagedType.Struct)]
@@ -106,7 +112,7 @@ namespace UnitTestProject1
     [TestClass]
     public class UnitTest1
     {
-        Random _random = new Random(1);
+        readonly Random _random = new Random(1);
         Guid guidComClass = new Guid("A90F9940-53C9-45B9-B67B-EE2EDE51CC00");
 
         public TestContext TestContext { get; set; }
@@ -119,6 +125,10 @@ namespace UnitTestProject1
         ITestHeapStacks GetTestHeapStacks(Interop oInterop)
         {
             var hr = oInterop.CoCreateFromFile("DetourClient.dll", guidComClass, typeof(ITestHeapStacks).GUID, out var pObject);
+            if (hr != 0)
+            {
+                throw new InvalidOperationException("Couldn't create COM dll");
+            }
             var obj = (ITestHeapStacks)Marshal.GetTypedObjectForIUnknown(pObject, typeof(ITestHeapStacks));
             return obj;
 
@@ -146,29 +156,52 @@ namespace UnitTestProject1
                 Marshal.ReleaseComObject(obj);
             }
         }
-
         [TestMethod]
         public async Task TestCollectStacks()
+        {
+            int nSizeSpecial = 1027;
+            var strStacksToCollect = $"16:16, 32:32,{nSizeSpecial}:0";
+            await TestCollectStacksHelper(strStacksToCollect, nSizeSpecial, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 20);
+        }
+        [TestMethod]
+        public async Task TestCollectStacksWithLimit()
+        {
+            int nSizeSpecial = 1027;
+            var strStacksToCollect = $"16:16, 32:32,{nSizeSpecial}:0";
+            await TestCollectStacksHelper(strStacksToCollect, nSizeSpecial, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 4096 , WaitForDoCsLife: true);
+        }
+
+        async Task TestCollectStacksHelper(
+            string strStacksToCollect, 
+            int nSizeSpecial, 
+            int NumFramesToCapture, 
+            int HeapAllocSizeMinValue, 
+            int StlAllocLimit, 
+            bool WaitForDoCsLife = false)
         {
             using (var oInterop = new Interop())
             {
                 var obj = GetTestHeapStacks(oInterop);
                 var sb = new StringBuilder(500);
-                int nSizeSpecial = 1027;
-                var strStacksToCollect = $"16:16, 32:32,{nSizeSpecial}:0";
-                //                strStacksToCollect = "";
-                obj.SetHeapCollectParams(strStacksToCollect, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 20);
+                obj.SetHeapCollectParams(strStacksToCollect, NumFramesToCapture, HeapAllocSizeMinValue, StlAllocLimit);
                 obj.StartDetours(out var pDetours);
                 int nIter = 10000;
                 int nThreads = 60;
-                var lstTasks = new List<Task>();
-                lstTasks.Add(Task.Run(() => doCSLife()));
+                var lstTasks = new List<Task>
+                {
+                    Task.Run(() => DoCSLife())
+                };
+                if (WaitForDoCsLife)
+                {
+                    await lstTasks[0];
+                }
                 var procHeap = Heap.GetProcessHeap();
                 var lstIntentionalLeaks = new List<IntPtr>();
                 for (int iThread = 0; iThread < nThreads; iThread++)
                 {
                     var task = Task.Run(() =>
                     {
+                        //                        LogMessage($"Task Alloc {iThread} {nIter}");
                         for (int i = 0; i < nIter; i++)
                         {
                             var x = Heap.HeapAlloc(procHeap, 0, nSizeSpecial);
@@ -185,6 +218,7 @@ namespace UnitTestProject1
                     lstTasks.Add(task);
                 }
                 await Task.WhenAll(lstTasks);
+                LogMessage($"Intentional Leaks {lstIntentionalLeaks.Count:n0}  TotAllocs={nIter * nThreads:n0}");
                 var heapStats = new HeapCollectStats(strStacksToCollect);
                 var ptrHeapStats = heapStats.GetPointer();
                 obj.StopDetours(pDetours, ptrHeapStats);
@@ -197,7 +231,10 @@ namespace UnitTestProject1
                  });
                 Assert.IsTrue(heapStats.MyRtlAllocateHeapCount > nIter * nThreads, $"Expected > {nIter * nThreads}, got {heapStats.MyRtlAllocateHeapCount}");
                 var det = heapStats.details.Where(s => s.AllocSize == nSizeSpecial).Single();
-                Assert.IsTrue(det.NumStacksCollected >= nIter, $"Expected numstacks collected ({det.NumStacksCollected}) > {nIter}");
+                if (!heapStats.fReachedMemLimit)
+                {
+                    Assert.IsTrue(det.NumStacksCollected >= nIter, $"Expected numstacks collected ({det.NumStacksCollected}) > {nIter}");
+                }
 
                 foreach (var addr in lstIntentionalLeaks)
                 {
@@ -224,7 +261,7 @@ namespace UnitTestProject1
             [Out] StringBuilder lpFilename,
             [In][MarshalAs(UnmanagedType.U4)] int nSize
         );
-        void doCSLife()
+        void DoCSLife()
         {
             LogMessage($"Doing cslife");
             var csLife = new FileInfo(Path.Combine(Environment.CurrentDirectory, @"..\..\..\cslife.exe")).FullName;
