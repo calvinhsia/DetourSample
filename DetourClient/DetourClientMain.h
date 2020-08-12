@@ -285,6 +285,45 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 typedef std::unordered_map < DWORD, MyTlsData*, std::hash<DWORD>, std::equal_to<DWORD>, MySTLAlloc<std::pair<DWORD, MyTlsData*>, StlAllocUseTlsHeap>> mapThreadIdToTls;
 extern mapThreadIdToTls* g_pmapThreadIdToTls;
 
+typedef std::vector<PVOID, MySTLAlloc<PVOID, StlAllocUseCallStackHeap>> vecFrames;
+
+struct CallStack;
+
+struct StacksForStackType;
+
+typedef std::unordered_map<UINT, CallStack, // can't use unique_ptr because can't override it's allocator and thus can cause deadlock
+	std::hash<UINT>,
+	std::equal_to<UINT>,
+	MySTLAlloc<std::pair<const UINT, CallStack>, StlAllocUseCallStackHeap >
+> mapStackHashToStack; // stackhash=>CallStack
+
+typedef UINT mapKey;
+
+typedef std::unordered_map<mapKey, StacksForStackType,
+	std::hash<mapKey>,
+	std::equal_to<mapKey>,
+	MySTLAlloc<std::pair<const mapKey, StacksForStackType>, StlAllocUseCallStackHeap>
+> mapStacksByStackType;
+
+// map the Size of an alloc to all the stacks that allocated that size.
+// note: if we're looking for all allocs of a specific size (e.g. 1Mb), then no need for a map by size (because all keys will be the same): more efficient to just use a mapStacks
+
+extern mapStacksByStackType* g_pmapStacksByStackType[StackTypeMax];
+
+
+struct PerAllocData
+{
+	ULONG stackHash;
+};
+typedef std::unordered_map<UINT, PerAllocData,
+	std::hash<UINT>,
+	std::equal_to<UINT>,
+	MySTLAlloc<std::pair<const UINT, PerAllocData>, StlAllocUseCallStackHeap >
+> mapAllocToStackHash; // alloc addr to stackhash
+
+extern mapAllocToStackHash* g_pmapAllocToStackHash;
+
+
 //template <class T>
 //inline void hash_combine(std::size_t & seed, const T & v)
 //{

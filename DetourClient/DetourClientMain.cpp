@@ -165,7 +165,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 		//		_asm int 3
 	}
 #endif _DEBUG
-	PVOID pMem = nullptr;
+	PVOID pMem = Real_RtlAllocateHeap(hHeapHandle, dwFlags, size);
 	auto pMyTlsData = MyTlsData::GetTlsData();
 	if (pMyTlsData != nullptr)
 	{
@@ -219,7 +219,6 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 			pMyTlsData->_fIsInRtlAllocHeap = false;
 		}
 	}
-	pMem = Real_RtlAllocateHeap(hHeapHandle, dwFlags, size);
 #if _DEBUG
 	recurcount--;
 #endif _DEBUG

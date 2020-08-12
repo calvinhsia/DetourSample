@@ -1,5 +1,5 @@
 #include <windows.h>
-#import "..\UnitTestProject1\bin\Debug\UnitTestProject1.tlb"
+#import "..\UnitTestProject1\bin\Debug\UnitTestProject1.tlb" raw_interfaces_only
 #include "atlbase.h"
 #include "atlcom.h"
 //#define _ITERATOR_DEBUG_LEVEL 0
@@ -49,7 +49,7 @@ public:
 	DECLARE_NOT_AGGREGATABLE(MyTest)
 	DECLARE_NO_REGISTRY()
 
-	STDMETHOD(raw_DoHeapStackTests)(long parm1, long* pparm2, BSTR bstrStrin, BSTR* pBstr)
+	STDMETHOD(DoHeapStackTests)(long parm1, long* pparm2, BSTR bstrStrin, BSTR* pBstr)
 	{
 		*pparm2 = parm1 + 1;
 		CComBSTR strIn(bstrStrin);
@@ -57,7 +57,7 @@ public:
 		*pBstr = strIn.Detach();// SysAllocString(strIn.m_str);
 		return S_OK;
 	}
-	STDMETHOD(raw_StartDetours)(long* pparm2)
+	STDMETHOD(StartDetours)(long* pparm2)
 	{
 		StartDetouring((PVOID*)pparm2);
 
@@ -92,7 +92,7 @@ public:
 		HeapUnlock(GetProcessHeap());
 		return S_OK;
 	}
-	STDMETHOD(raw_SetHeapCollectParams)(
+	STDMETHOD(SetHeapCollectParams)(
 		BSTR HeapSizesToCollect,
 		long NumFramesToCapture,
 		long HeapAllocSizeMinValue,
@@ -106,14 +106,14 @@ public:
 	}
 
 
-	STDMETHOD(raw_StopDetours)(long pparm2, long ptrHeapStats)
+	STDMETHOD(StopDetours)(long pparm2, long ptrHeapStats)
 	{
 		HeapLock(GetProcessHeap());
 		StopDetouring((PVOID)pparm2);
 		HeapUnlock(GetProcessHeap());
 		if (ptrHeapStats != 0)
 		{
-			// heapstats should be collected before uninit detours
+			// heapstats should be read before UuninitCollectStacks
 			auto pHeapStats = (HeapCollectStats*)ptrHeapStats;
 
 			pHeapStats->MyRtlAllocateHeapCount = g_MyRtlAllocateHeapCount;
@@ -126,6 +126,8 @@ public:
 			pHeapStats->nTotFramesCollected = g_MyStlAllocStats._nTotFramesCollected;
 			pHeapStats->TotNumBytesHeapAlloc = g_MyStlAllocStats._TotNumBytesHeapAlloc;
 			pHeapStats->NumStacksMissed = g_MyStlAllocStats._NumStacksMissed[StackTypeHeapAlloc];
+			auto x = g_pmapStacksByStackType[StackTypeHeapAlloc]->size();
+
 			pHeapStats->fReachedMemLimit = g_MyStlAllocStats._fReachedMemLimit;
 			for (int i = 0; i < pHeapStats->NumDetailRecords; i++)
 			{
@@ -142,6 +144,10 @@ public:
 
 		}
 		UninitCollectStacks();
+		return S_OK;
+	}
+	STDMETHOD(GetCollectedStacks)()
+	{
 		return S_OK;
 	}
 };
