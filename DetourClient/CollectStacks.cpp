@@ -159,9 +159,9 @@ struct CallStack
 // if the stacks are identical, the count is bumped.
 struct StacksForStackType
 {
-	StacksForStackType(int numFramesToSkip)
+	StacksForStackType(int numFramesToSkip, ULONG* pStackHash)
 	{
-		AddNewStack(numFramesToSkip);
+		AddNewStack(numFramesToSkip, pStackHash);
 	}
 	StacksForStackType(StacksForStackType&& other) noexcept// move constructor
 	{
@@ -175,13 +175,14 @@ struct StacksForStackType
 		}
 		return *this;
 	}
-	bool AddNewStack(int numFramesToSkip)
+	bool AddNewStack(int numFramesToSkip, ULONG* pStackHash)
 	{
 		bool fDidAdd = false;
 		if (!g_MyStlAllocStats._fReachedMemLimit)
 		{
 			CallStack stack(numFramesToSkip);
 			auto hash = stack._stackHash;
+			*pStackHash = hash;
 			auto res = _stacks.find(hash);
 			if (res == _stacks.end())
 			{
@@ -261,11 +262,6 @@ void InitCollectStacks()
 		mapAllocToStackHash::allocator_type alloc_type;
 		myAllocToStackHashAllocator allocator(alloc_type);
 		g_pmapAllocToStackHash = new (allocator.allocate(1)) mapAllocToStackHash();
-		PerAllocData dat 
-		{
-			 0x345
-		};
-		g_pmapAllocToStackHash->insert(mapAllocToStackHash::value_type( 0x123, dat));
 	}
 }
 
@@ -291,12 +287,15 @@ void UninitCollectStacks()
 		}
 	}
 	{
-		using myAllocToStackHashAllocator = typename allocator_traits<mapAllocToStackHash::allocator_type>::rebind_alloc<mapAllocToStackHash>;
-		mapAllocToStackHash::allocator_type alloc_type;
-		myAllocToStackHashAllocator allocator(alloc_type);
-		g_pmapAllocToStackHash->~mapAllocToStackHash(); // invoke dtor
-		allocator.deallocate(g_pmapAllocToStackHash, 1); // delete the placement new
-		g_pmapAllocToStackHash = nullptr;
+		if (g_pmapAllocToStackHash != nullptr)
+		{
+			using myAllocToStackHashAllocator = typename allocator_traits<mapAllocToStackHash::allocator_type>::rebind_alloc<mapAllocToStackHash>;
+			mapAllocToStackHash::allocator_type alloc_type;
+			myAllocToStackHashAllocator allocator(alloc_type);
+			g_pmapAllocToStackHash->~mapAllocToStackHash(); // invoke dtor
+			allocator.deallocate(g_pmapAllocToStackHash, 1); // delete the placement new
+			g_pmapAllocToStackHash = nullptr;
+		}
 	}
 
 	//	MessageBoxA(0, "about to Heap destroy", "", 0);
@@ -450,7 +449,7 @@ LONGLONG GetNumStacksCollected()
 }
 
 // extraInfo can be e.g. elapsed ticks. Don't store in stacks, but raise ETW event with it
-bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraInfo, int numFramesToSkip) //noexcept
+bool CollectStack(PVOID addrAlloc, StackType stackType, DWORD stackSubType, DWORD extraInfo, int numFramesToSkip) //noexcept
 {
 	bool fDidCollectStack = false;
 	try
@@ -471,12 +470,17 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		// We want to use the size as the key: see if we've seen this key before
 		mapKey key(stackSubType);
 		CComCritSecLock<decltype(g_critSectHeapAlloc)> lock(g_critSectHeapAlloc);
-		auto res = g_pmapStacksByStackType[stackType]->find(key);
-		if (res == g_pmapStacksByStackType[stackType]->end())
+		auto res = g_pmapStacksByStackType[stackType]->find(key); // find the stacks per size 
+		ULONG stackHash;
+		if (res == g_pmapStacksByStackType[stackType]->end()) // if we haven't had any stacks for this size yet
 		{
 			if (!g_MyStlAllocStats._fReachedMemLimit)
 			{
-				g_pmapStacksByStackType[stackType]->insert(mapStacksByStackType::value_type(key, move(StacksForStackType(numFramesToSkip))));
+				g_pmapStacksByStackType[stackType]->insert(
+					mapStacksByStackType::value_type(
+						key, move(StacksForStackType(numFramesToSkip, &stackHash))
+					)
+				);
 				fDidCollectStack = true;
 			}
 			else
@@ -487,7 +491,24 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		else
 		{
 			// we still want to calc stack hash and bump count if stack already collected
-			fDidCollectStack = res->second.AddNewStack(numFramesToSkip);
+			fDidCollectStack = res->second.AddNewStack(numFramesToSkip, &stackHash);
+		}
+		if (!g_MyStlAllocStats._fReachedMemLimit)
+		{
+			auto resIt = g_pmapAllocToStackHash->find(addrAlloc);
+			if (resIt != g_pmapAllocToStackHash->end())
+			{
+//				g_pmapAllocToStackHash->erase(addrAlloc);
+				resIt->second.stackHash = stackHash;// just update the stack hash for this alloc
+			}
+			else
+			{
+				g_pmapAllocToStackHash->insert(mapAllocToStackHash::value_type(addrAlloc, PerAllocData{ stackHash }));
+			}
+			if (g_pmapAllocToStackHash->size() == 100)// conditional bpts toooo slow.
+			{
+				auto x = 2;
+			}
 		}
 	}
 	catch (const std::bad_alloc&)

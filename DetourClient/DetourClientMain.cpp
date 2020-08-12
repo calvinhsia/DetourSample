@@ -203,7 +203,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 					{
 						if (it->_nThreshold == 0)
 						{
-							fDidCollectStack = CollectStack(StackTypeHeapAlloc,/*stackSubType*/ (DWORD)size, /*extra data*/NULL, /*numFramesToSkip*/1);
+							fDidCollectStack = CollectStack(pMem, StackTypeHeapAlloc,/*stackSubType*/ (DWORD)size, /*extra data*/NULL, /*numFramesToSkip*/1);
 							if (fDidCollectStack)
 							{
 								InterlockedIncrement(&it->_nStacksCollected);

@@ -30,7 +30,7 @@ typedef enum {
 
 void InitCollectStacks();
 void UninitCollectStacks();
-bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraData, int numFramesToSkip);
+bool CollectStack(PVOID addrAlloc, StackType stackType, DWORD stackSubType, DWORD extraData, int numFramesToSkip);
 
 struct HeapSizeData
 {
@@ -315,10 +315,10 @@ struct PerAllocData
 {
 	ULONG stackHash;
 };
-typedef std::unordered_map<UINT, PerAllocData,
-	std::hash<UINT>,
-	std::equal_to<UINT>,
-	MySTLAlloc<std::pair<const UINT, PerAllocData>, StlAllocUseCallStackHeap >
+typedef std::unordered_map<PVOID, PerAllocData,
+	std::hash<PVOID>,
+	std::equal_to<PVOID>,
+	MySTLAlloc<std::pair<const PVOID, PerAllocData>, StlAllocUseCallStackHeap >
 > mapAllocToStackHash; // alloc addr to stackhash
 
 extern mapAllocToStackHash* g_pmapAllocToStackHash;
