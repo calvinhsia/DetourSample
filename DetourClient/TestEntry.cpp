@@ -110,6 +110,9 @@ public:
 	{
 		HeapLock(GetProcessHeap());
 		StopDetouring((PVOID)pDetours);
+		Real_RtlAllocateHeap = nullptr; // we've stopped detouring: set the local ptr that MyStlAlloc uses to null
+		Real_RtlFreeHeap = nullptr;
+		Real_HeapReAlloc = nullptr;
 		HeapUnlock(GetProcessHeap());
 		return S_OK;
 	}
@@ -151,7 +154,7 @@ public:
 		return S_OK;
 	}
 
-	STDMETHOD(GetCollectedStacks)(long* pnumAllocs, long* pAddresses)
+	STDMETHOD(GetLiveAllocAddresses)(long* pnumAllocs, long* pAddresses)
 	{
 		if (g_pmapAllocToStackHash != nullptr)
 		{
@@ -167,6 +170,11 @@ public:
 		}
 		return S_OK;
 	}
+	STDMETHOD(GetCollectedAllocStacks)(long allocSize, long* pnumStacks, long* pAddresses)
+	{
+		return ::GetCollectedAllocStacks(allocSize, pnumStacks, pAddresses);
+	}
+
 	STDMETHOD(CollectStacksUninitialize)()
 	{
 		UninitCollectStacks();

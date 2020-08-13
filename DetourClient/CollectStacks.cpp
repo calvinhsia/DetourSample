@@ -572,3 +572,34 @@ bool CollectStack(PVOID addrAlloc, StackType stackType, DWORD stackSubType, DWOR
 	}
 	return fDidCollectStack;
 }
+
+HRESULT GetCollectedAllocStacks(long allocSize, long* pnumStacks, long* pAddresses)
+{
+	if (g_pmapStacksByStackType != nullptr)
+	{
+		*pnumStacks = g_pmapStacksByStackType[StackTypeHeapAlloc]->size();
+		*pAddresses = (long)CoTaskMemAlloc(*pnumStacks * sizeof(PVOID));
+		UINT* ptr = (UINT*)*pAddresses;
+		for (auto& itmSize : *(g_pmapStacksByStackType[StackTypeHeapAlloc]))
+		{
+			if (itmSize.first == allocSize)
+			{
+				for (auto& itm : itmSize.second._stacks)
+				{
+					auto xx = itm.first; // stackhash is key
+					auto xy = itm.second._stackHash;
+					auto occur = itm.second._nOccur;
+					auto frameCount = itm.second._vecFrames.size();
+					for (auto frame : itm.second._vecFrames)
+					{
+
+					}
+				}
+				//ptr[0] = (UINT)itm.first;
+				//ptr[1] = itm.second.stackHash;
+				//ptr += 2;
+			}
+		}
+	}
+	return S_OK;
+}

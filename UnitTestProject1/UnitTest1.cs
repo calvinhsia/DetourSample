@@ -99,7 +99,20 @@ namespace UnitTestProject1
             return $"{AllocSize}:{AllocThresh} NumStacksCollected: {NumStacksCollected:n0}";
         }
     }
-    struct HeapAllocation
+
+    // for each alloc of particular alloc size, there is a hash and a variable length array of IntPtrs
+    [ComVisible(true)]
+    [Guid("7133738F-0654-43D1-AAE9-75C947C11253")]//{7133738F-0654-43D1-AAE9-75C947C11253}
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CollectedStack
+    {
+        public int sizeAlloc;
+        public int stackHash;
+        public int numOccur; // the # of times this stack was found 
+        public int numFrames;
+        public IntPtr pFrameArray; // the frames
+    }
+    struct LiveHeapAllocation
     {
         public IntPtr addr;
         public uint stackhash;
@@ -118,7 +131,8 @@ namespace UnitTestProject1
 
         void GetStats(IntPtr HeapStats);
         void CollectStacksUninitialize();
-        void GetCollectedStacks(ref int numAllocs, ref IntPtr ptrData);
+        void GetLiveAllocAddresses(ref int numAllocs, ref IntPtr ptrData);
+        void GetCollectedAllocStacks(int allocSize, ref int numStacks, ref IntPtr allocStacks);
     }
 
     [TestClass]
@@ -215,25 +229,37 @@ namespace UnitTestProject1
                     LogMessage($"  {detail}");
                 });
                 Assert.IsTrue(heapStats.MyRtlAllocateHeapCount > nIter * nThreads, $"Expected > {nIter * nThreads}, got {heapStats.MyRtlAllocateHeapCount}");
-                var det = heapStats.details.Where(s => s.AllocSize == nSizeSpecial).Single();
                 if (!heapStats.fReachedMemLimit)
                 {
+                    var det = heapStats.details.Where(s => s.AllocSize == nSizeSpecial).Single();
                     Assert.IsTrue(det.NumStacksCollected >= nIter, $"Expected numstacks collected ({det.NumStacksCollected}) > {nIter}");
                 }
                 {
-                    var lstLiveAllocs = new List<HeapAllocation>();
+                    foreach (var det in heapStats.details)
+                    {
+                        int numStacks = 0;
+                        IntPtr allocStacks = IntPtr.Zero;
+                        obj.GetCollectedAllocStacks(det.AllocSize, ref numStacks, ref allocStacks);
+                        LogMessage($"Num AllocStacks Collected for size {det.AllocSize}= {numStacks}");
+                        Assert.IsTrue(numStacks > 0, "Expected > 0 stacks");
+                        Marshal.FreeCoTaskMem(allocStacks);
+
+                    }
+                }
+                {
+                    var lstLiveAllocs = new List<LiveHeapAllocation>();
                     int numAllocs = 0;
                     IntPtr ptrData = IntPtr.Zero;
-                    obj.GetCollectedStacks(ref numAllocs, ref ptrData);
-                    LogMessage($"# LiveAllocStacks = {numAllocs}");
+                    obj.GetLiveAllocAddresses(ref numAllocs, ref ptrData);
+                    LogMessage($"# LiveAllocStacks (allocs that are still live)= {numAllocs}");
                     for (int i = 0; i < numAllocs; i++)
                     {
-                        var allocdata = Marshal.PtrToStructure<HeapAllocation>(ptrData + i * IntPtr.Size);
+                        var allocdata = Marshal.PtrToStructure<LiveHeapAllocation>(ptrData + i * IntPtr.Size);
                         var str = "Freed";
                         if (lstIntentionalLeaks.Contains(allocdata.addr))
                         {
                             str = Marshal.PtrToStringAnsi(allocdata.addr);
-
+                            Assert.IsTrue(str.StartsWith("This is a test string"));
                         }
                         LogMessage($" {i}  addr={(uint)(allocdata.addr):x8} stackhash={allocdata.stackhash:x8} str={str}");
                     }
@@ -244,8 +270,8 @@ namespace UnitTestProject1
                 {
                     Heap.HeapFree(procHeap, 0, addr);
                 }
-                obj.CollectStacksUninitialize();
                 heapStats.Dispose();
+                obj.CollectStacksUninitialize();
                 Marshal.FreeHGlobal(ptrHeapStats);
                 Marshal.ReleaseComObject(obj);
                 //                Assert.Fail($"#HeapAlloc={heapStats.MyRtlAllocateHeapCount}");
@@ -337,14 +363,14 @@ namespace UnitTestProject1
                 {
                     Assert.IsTrue(det.NumStacksCollected >= nIter, $"Expected numstacks collected ({det.NumStacksCollected}) > {nIter}");
                 }
-                var lstLiveAllocs = new List<HeapAllocation>();
+                var lstLiveAllocs = new List<LiveHeapAllocation>();
                 int numAllocs = 0;
                 IntPtr ptrData = IntPtr.Zero;
-                obj.GetCollectedStacks(ref numAllocs, ref ptrData);
+                obj.GetLiveAllocAddresses(ref numAllocs, ref ptrData);
                 LogMessage($"# LiveAllocStacks = {numAllocs}");
                 for (int i = 0; i < numAllocs; i++)
                 {
-                    var allocdata = Marshal.PtrToStructure<HeapAllocation>(ptrData + i * IntPtr.Size);
+                    var allocdata = Marshal.PtrToStructure<LiveHeapAllocation>(ptrData + i * IntPtr.Size);
                     LogMessage($" {i}  addr={allocdata.addr.ToInt32():x8} stackhash={allocdata.stackhash:x8} ");
                 }
 

@@ -353,5 +353,6 @@ void DoSomeManagedCode();
 void DoSomeThreadingModelExperiments();
 
 LONGLONG GetNumStacksCollected();
+HRESULT GetCollectedAllocStacks(long allocSize, long *pnumStacks, long *pAddresses);
 
 
