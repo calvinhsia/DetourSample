@@ -99,7 +99,11 @@ namespace UnitTestProject1
             return $"{AllocSize}:{AllocThresh} NumStacksCollected: {NumStacksCollected:n0}";
         }
     }
-
+    struct HeapAllocation
+    {
+        public IntPtr addr;
+        public uint stackhash;
+    }
 
     [ComVisible(true)]
     [Guid("1491F27F-5EB8-4A70-8651-23F1AB98AEC6")] ///{1491F27F-5EB8-4A70-8651-23F1AB98AEC6}
@@ -110,8 +114,11 @@ namespace UnitTestProject1
         void StartDetours(out IntPtr parm2);
         void SetHeapCollectParams(string HeapSizesToCollect, int NumFramesToCapture, int HeapAllocSizeMinValue, int StlAllocLimit);
 
-        void StopDetours(IntPtr pDetours, IntPtr HeapStats);
-        void GetCollectedStacks();
+        void StopDetours(IntPtr pDetours);
+
+        void GetStats(IntPtr HeapStats);
+        void CollectStacksUninitialize();
+        void GetCollectedStacks(ref int numAllocs, ref IntPtr ptrData);
     }
 
     [TestClass]
@@ -136,8 +143,8 @@ namespace UnitTestProject1
             }
             var obj = (ITestHeapStacks)Marshal.GetTypedObjectForIUnknown(pObject, typeof(ITestHeapStacks));
             return obj;
-
         }
+
         [TestMethod]
         public void TestPlumbing()
         {
@@ -157,17 +164,102 @@ namespace UnitTestProject1
 
                     Assert.AreEqual(str, "StringInGotStr");
                 }
-                obj.StopDetours(pDetours, HeapStats: IntPtr.Zero);
+                obj.StopDetours(pDetours);
+                obj.CollectStacksUninitialize();
                 Marshal.ReleaseComObject(obj);
             }
         }
+
+        [TestMethod]
+        public void TestCollectStackAddresses()
+        {
+            int nSizeSpecial = 1027;
+            var strStacksToCollect = $"{nSizeSpecial}:0";
+            using (var oInterop = new Interop())
+            {
+                var obj = GetTestHeapStacks(oInterop);
+                obj.SetHeapCollectParams(strStacksToCollect, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 10);
+                obj.StartDetours(out var pDetours);
+                int nIter = 100;
+                int nThreads = 1;
+                var procHeap = Heap.GetProcessHeap();
+                var lstIntentionalLeaks = new List<IntPtr>();
+                for (int iThread = 0; iThread < nThreads; iThread++)
+                {
+                    for (int i = 0; i < nIter; i++)
+                    {
+                        var addr = Heap.HeapAlloc(procHeap, 0, nSizeSpecial);
+                        if (_random.Next(100) < 50)
+                        {
+                            var teststr = $"This is a test string {i} {iThread}\0";
+                            var bytes = ASCIIEncoding.ASCII.GetBytes(teststr);
+                            Marshal.Copy(bytes, 0, addr, teststr.Length);
+                            lstIntentionalLeaks.Add(addr);
+                        }
+                        else
+                        {
+                            Heap.HeapFree(procHeap, 0, addr);
+                        }
+                    }
+                }
+                LogMessage($"Intentional Leaks {lstIntentionalLeaks.Count:n0}  TotAllocs={nIter * nThreads:n0}");
+                var heapStats = new HeapCollectStats(strStacksToCollect);
+                obj.StopDetours(pDetours);
+                var ptrHeapStats = heapStats.GetPointer();
+                obj.GetStats(ptrHeapStats);
+
+                heapStats = HeapCollectStats.FromPointer(ptrHeapStats);
+                LogMessage($"Allocation stacks {heapStats}");
+                Array.ForEach<HeapCollectStatDetail>(heapStats.details, (detail) =>
+                {
+                    LogMessage($"  {detail}");
+                });
+                Assert.IsTrue(heapStats.MyRtlAllocateHeapCount > nIter * nThreads, $"Expected > {nIter * nThreads}, got {heapStats.MyRtlAllocateHeapCount}");
+                var det = heapStats.details.Where(s => s.AllocSize == nSizeSpecial).Single();
+                if (!heapStats.fReachedMemLimit)
+                {
+                    Assert.IsTrue(det.NumStacksCollected >= nIter, $"Expected numstacks collected ({det.NumStacksCollected}) > {nIter}");
+                }
+                {
+                    var lstLiveAllocs = new List<HeapAllocation>();
+                    int numAllocs = 0;
+                    IntPtr ptrData = IntPtr.Zero;
+                    obj.GetCollectedStacks(ref numAllocs, ref ptrData);
+                    LogMessage($"# LiveAllocStacks = {numAllocs}");
+                    for (int i = 0; i < numAllocs; i++)
+                    {
+                        var allocdata = Marshal.PtrToStructure<HeapAllocation>(ptrData + i * IntPtr.Size);
+                        var str = "Freed";
+                        if (lstIntentionalLeaks.Contains(allocdata.addr))
+                        {
+                            str = Marshal.PtrToStringAnsi(allocdata.addr);
+
+                        }
+                        LogMessage($" {i}  addr={(uint)(allocdata.addr):x8} stackhash={allocdata.stackhash:x8} str={str}");
+                    }
+                    Marshal.FreeCoTaskMem(ptrData);
+                }
+
+                foreach (var addr in lstIntentionalLeaks)
+                {
+                    Heap.HeapFree(procHeap, 0, addr);
+                }
+                obj.CollectStacksUninitialize();
+                heapStats.Dispose();
+                Marshal.FreeHGlobal(ptrHeapStats);
+                Marshal.ReleaseComObject(obj);
+                //                Assert.Fail($"#HeapAlloc={heapStats.MyRtlAllocateHeapCount}");
+            }
+        }
+
         [TestMethod]
         public async Task TestCollectStacks()
         {
             int nSizeSpecial = 1027;
             var strStacksToCollect = $"16:16, 32:32,{nSizeSpecial}:0";
-            await TestCollectStacksHelper(strStacksToCollect, nSizeSpecial, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 20);
+            await TestCollectStacksHelper(strStacksToCollect, nSizeSpecial, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 60);
         }
+
         [TestMethod]
         public async Task TestCollectStacksWithLimit()
         {
@@ -175,6 +267,8 @@ namespace UnitTestProject1
             var strStacksToCollect = $"16:16, 32:32,{nSizeSpecial}:0";
             await TestCollectStacksHelper(strStacksToCollect, nSizeSpecial, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 4096, WaitForDoCsLife: true);
         }
+
+
 
         async Task TestCollectStacksHelper(
             string strStacksToCollect,
@@ -187,7 +281,6 @@ namespace UnitTestProject1
             using (var oInterop = new Interop())
             {
                 var obj = GetTestHeapStacks(oInterop);
-                var sb = new StringBuilder(500);
                 obj.SetHeapCollectParams(strStacksToCollect, NumFramesToCapture, HeapAllocSizeMinValue, StlAllocLimit);
                 obj.StartDetours(out var pDetours);
                 int nIter = 10000;
@@ -227,9 +320,10 @@ namespace UnitTestProject1
                 }
                 await Task.WhenAll(lstTasks);
                 LogMessage($"Intentional Leaks {lstIntentionalLeaks.Count:n0}  TotAllocs={nIter * nThreads:n0}");
+                obj.StopDetours(pDetours);
                 var heapStats = new HeapCollectStats(strStacksToCollect);
                 var ptrHeapStats = heapStats.GetPointer();
-                obj.StopDetours(pDetours, ptrHeapStats);
+                obj.GetStats(ptrHeapStats);
 
                 heapStats = HeapCollectStats.FromPointer(ptrHeapStats);
                 LogMessage($"Allocation stacks {heapStats}");
@@ -243,12 +337,25 @@ namespace UnitTestProject1
                 {
                     Assert.IsTrue(det.NumStacksCollected >= nIter, $"Expected numstacks collected ({det.NumStacksCollected}) > {nIter}");
                 }
-                obj.GetCollectedStacks();
+                var lstLiveAllocs = new List<HeapAllocation>();
+                int numAllocs = 0;
+                IntPtr ptrData = IntPtr.Zero;
+                obj.GetCollectedStacks(ref numAllocs, ref ptrData);
+                LogMessage($"# LiveAllocStacks = {numAllocs}");
+                for (int i = 0; i < numAllocs; i++)
+                {
+                    var allocdata = Marshal.PtrToStructure<HeapAllocation>(ptrData + i * IntPtr.Size);
+                    LogMessage($" {i}  addr={allocdata.addr.ToInt32():x8} stackhash={allocdata.stackhash:x8} ");
+                }
+
+                Marshal.FreeCoTaskMem(ptrData);
+
                 foreach (var addr in lstIntentionalLeaks)
                 {
                     Heap.HeapFree(procHeap, 0, addr);
                 }
                 heapStats.Dispose();
+                obj.CollectStacksUninitialize();
                 Marshal.FreeHGlobal(ptrHeapStats);
                 Marshal.ReleaseComObject(obj);
                 //                Assert.Fail($"#HeapAlloc={heapStats.MyRtlAllocateHeapCount}");

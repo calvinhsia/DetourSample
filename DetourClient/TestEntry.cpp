@@ -106,11 +106,16 @@ public:
 	}
 
 
-	STDMETHOD(StopDetours)(long pparm2, long ptrHeapStats)
+	STDMETHOD(StopDetours)(long pDetours)
 	{
 		HeapLock(GetProcessHeap());
-		StopDetouring((PVOID)pparm2);
+		StopDetouring((PVOID)pDetours);
 		HeapUnlock(GetProcessHeap());
+		return S_OK;
+	}
+
+	STDMETHOD(GetStats)(long ptrHeapStats)
+	{
 		if (ptrHeapStats != 0)
 		{
 			// heapstats should be read before UuninitCollectStacks
@@ -143,11 +148,28 @@ public:
 			}
 
 		}
-		UninitCollectStacks();
 		return S_OK;
 	}
-	STDMETHOD(GetCollectedStacks)()
+
+	STDMETHOD(GetCollectedStacks)(long* pnumAllocs, long* pAddresses)
 	{
+		if (g_pmapAllocToStackHash != nullptr)
+		{
+			*pnumAllocs = g_pmapAllocToStackHash->size();
+			*pAddresses = (long)CoTaskMemAlloc(*pnumAllocs * 2 * sizeof(PVOID));
+			UINT * ptr = (UINT *)*pAddresses;
+			for (auto& itm : *g_pmapAllocToStackHash)
+			{
+				ptr[0] = (UINT)itm.first;
+				ptr[1] = itm.second.stackHash;
+				ptr += 2;
+			}
+		}
+		return S_OK;
+	}
+	STDMETHOD(CollectStacksUninitialize)()
+	{
+		UninitCollectStacks();
 		return S_OK;
 	}
 };
