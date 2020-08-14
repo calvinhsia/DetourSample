@@ -498,7 +498,7 @@ bool CollectStack(PVOID addrAlloc, StackType stackType, DWORD stackSubType, DWOR
 			auto resIt = g_pmapAllocToStackHash->find(addrAlloc);
 			if (resIt != g_pmapAllocToStackHash->end())
 			{
-//				g_pmapAllocToStackHash->erase(addrAlloc);
+				//				g_pmapAllocToStackHash->erase(addrAlloc);
 				resIt->second.stackHash = stackHash;// just update the stack hash for this alloc
 			}
 			else
@@ -578,21 +578,29 @@ HRESULT GetCollectedAllocStacks(long allocSize, long* pnumStacks, long* pAddress
 	if (g_pmapStacksByStackType != nullptr)
 	{
 		*pnumStacks = g_pmapStacksByStackType[StackTypeHeapAlloc]->size();
-		*pAddresses = (long)CoTaskMemAlloc(*pnumStacks * sizeof(PVOID));
-		UINT* ptr = (UINT*)*pAddresses;
 		for (auto& itmSize : *(g_pmapStacksByStackType[StackTypeHeapAlloc]))
 		{
 			if (itmSize.first == allocSize)
 			{
 				for (auto& itm : itmSize.second._stacks)
 				{
-					auto xx = itm.first; // stackhash is key
-					auto xy = itm.second._stackHash;
-					auto occur = itm.second._nOccur;
-					auto frameCount = itm.second._vecFrames.size();
+					CollectedStack* pCollectedStack = (CollectedStack*)CoTaskMemAlloc(sizeof(CollectedStack));
+					if (pCollectedStack == nullptr)
+					{
+						return E_FAIL;
+					}
+					pCollectedStack->stackHash = itm.second._stackHash;
+					pCollectedStack->numOccur = itm.second._nOccur;
+					pCollectedStack->numFrames = itm.second._vecFrames.size();
+					UINT *ptr = (UINT *)CoTaskMemAlloc(pCollectedStack->numFrames * sizeof(PVOID));
+					if (ptr == nullptr)
+					{
+						return E_FAIL;
+					}
+					pCollectedStack->pFrameArray = (LONG) ptr;
 					for (auto frame : itm.second._vecFrames)
 					{
-
+						*ptr++ = (UINT)frame;
 					}
 				}
 				//ptr[0] = (UINT)itm.first;

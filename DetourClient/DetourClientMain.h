@@ -12,6 +12,9 @@
 #include <memory>
 #include <functional>
 #include <algorithm>
+#import "..\UnitTestProject1\bin\Debug\UnitTestProject1.tlb" raw_interfaces_only
+
+using namespace UnitTestProject1;
 
 // the different types of callstacks we collect
 typedef enum {

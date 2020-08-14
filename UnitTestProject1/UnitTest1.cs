@@ -110,7 +110,7 @@ namespace UnitTestProject1
         public int stackHash;
         public int numOccur; // the # of times this stack was found 
         public int numFrames;
-        public IntPtr pFrameArray; // the frames
+        public IntPtr pFrameArray; // the frames // must be cotask freed
     }
     struct LiveHeapAllocation
     {
@@ -131,8 +131,14 @@ namespace UnitTestProject1
 
         void GetStats(IntPtr HeapStats);
         void CollectStacksUninitialize();
-        void GetLiveAllocAddresses(ref int numAllocs, ref IntPtr ptrData);
+        void GetLiveAllocAddresses(
+            ref int numAllocs,
+            ref IntPtr ptrData);
         void GetCollectedAllocStacks(int allocSize, ref int numStacks, ref IntPtr allocStacks);
+        //void GetCollectedAllocStacks2(
+        //    ref int numStacks,
+        //    ref IntPtr ptrArray, // CoTaskFree when done
+        //    [Out][MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.Struct, SizeParamIndex = 0)] CollectedStack[] collectedStacks);
     }
 
     [TestClass]
@@ -234,6 +240,14 @@ namespace UnitTestProject1
                     var det = heapStats.details.Where(s => s.AllocSize == nSizeSpecial).Single();
                     Assert.IsTrue(det.NumStacksCollected >= nIter, $"Expected numstacks collected ({det.NumStacksCollected}) > {nIter}");
                 }
+                //{
+                //    int numStacks = 0;
+                //    IntPtr allocStacks = IntPtr.Zero;
+                //    CollectedStack[] arrCollectedStacks = new CollectedStack[0];
+                //    obj.GetCollectedAllocStacks2(ref numStacks, ref allocStacks, arrCollectedStacks);
+                //    Marshal.FreeCoTaskMem(allocStacks);
+                //    Assert.IsTrue(numStacks == 1);
+                //}
                 {
                     foreach (var det in heapStats.details)
                     {
@@ -241,6 +255,11 @@ namespace UnitTestProject1
                         IntPtr allocStacks = IntPtr.Zero;
                         obj.GetCollectedAllocStacks(det.AllocSize, ref numStacks, ref allocStacks);
                         LogMessage($"Num AllocStacks Collected for size {det.AllocSize}= {numStacks}");
+
+                        for (int i = 0; i < numStacks; i++)
+                        {
+
+                        }
                         Assert.IsTrue(numStacks > 0, "Expected > 0 stacks");
                         Marshal.FreeCoTaskMem(allocStacks);
 
@@ -363,18 +382,6 @@ namespace UnitTestProject1
                 {
                     Assert.IsTrue(det.NumStacksCollected >= nIter, $"Expected numstacks collected ({det.NumStacksCollected}) > {nIter}");
                 }
-                var lstLiveAllocs = new List<LiveHeapAllocation>();
-                int numAllocs = 0;
-                IntPtr ptrData = IntPtr.Zero;
-                obj.GetLiveAllocAddresses(ref numAllocs, ref ptrData);
-                LogMessage($"# LiveAllocStacks = {numAllocs}");
-                for (int i = 0; i < numAllocs; i++)
-                {
-                    var allocdata = Marshal.PtrToStructure<LiveHeapAllocation>(ptrData + i * IntPtr.Size);
-                    LogMessage($" {i}  addr={allocdata.addr.ToInt32():x8} stackhash={allocdata.stackhash:x8} ");
-                }
-
-                Marshal.FreeCoTaskMem(ptrData);
 
                 foreach (var addr in lstIntentionalLeaks)
                 {

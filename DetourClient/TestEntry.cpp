@@ -1,5 +1,4 @@
 #include <windows.h>
-#import "..\UnitTestProject1\bin\Debug\UnitTestProject1.tlb" raw_interfaces_only
 #include "atlbase.h"
 #include "atlcom.h"
 //#define _ITERATOR_DEBUG_LEVEL 0
@@ -170,9 +169,24 @@ public:
 		}
 		return S_OK;
 	}
+
 	STDMETHOD(GetCollectedAllocStacks)(long allocSize, long* pnumStacks, long* pAddresses)
 	{
 		return ::GetCollectedAllocStacks(allocSize, pnumStacks, pAddresses);
+	}
+	STDMETHOD(GetCollectedAllocStacks2)(long* pnumStacks, long *ptrArray, CollectedStack *pCollectedStacks)
+	{
+		auto ptr = (CollectedStack*)CoTaskMemAlloc(sizeof(CollectedStack));
+		*ptrArray = (long )ptr;
+		if (pCollectedStacks != nullptr)
+		{
+			pCollectedStacks = ptr;
+		}
+		*pnumStacks = 1;
+		ptr->numFrames = 2;
+		ptr->numOccur = 3;
+		ptr->numFrames = 0;
+		return S_OK;
 	}
 
 	STDMETHOD(CollectStacksUninitialize)()
