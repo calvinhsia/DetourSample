@@ -106,7 +106,7 @@ struct CallStack
 			EBP_STACK_FRAME* currentEBP = static_cast<EBP_STACK_FRAME*>(ULongToPtr(context.Ebp));
 			EBP_STACK_FRAME* lastEBP = nullptr;
 			HANDLE hThread = GetCurrentThread();
-			LDT_ENTRY ldt_Enty;
+			LDT_ENTRY ldt_Enty = {};
 			if (GetThreadSelectorEntry(hThread, context.SegFs, &ldt_Enty))
 			{
 				PNT_TIB threadTib = static_cast<PNT_TIB>(((void*)((ldt_Enty.HighWord.Bits.BaseHi << 24) | (ldt_Enty.HighWord.Bits.BaseMid << 16) | ldt_Enty.BaseLow)));
@@ -135,7 +135,7 @@ struct CallStack
 		{
 
 		}
-		return nFrames - NumFramesToSkip > 0 ? nFrames - NumFramesToSkip : 0;
+		return nFrames - NumFramesToSkip - 1 > 0 ? nFrames - NumFramesToSkip - 1 : 0;
 	}
 #endif
 	CallStack& operator = (CallStack&& other) noexcept// move assignment
@@ -471,7 +471,7 @@ bool CollectStack(PVOID addrAlloc, StackType stackType, DWORD stackSubType, DWOR
 		mapKey key(stackSubType);
 		CComCritSecLock<decltype(g_critSectHeapAlloc)> lock(g_critSectHeapAlloc);
 		auto res = g_pmapStacksByStackType[stackType]->find(key); // find the stacks per size 
-		ULONG stackHash;
+		ULONG stackHash = {};
 		if (res == g_pmapStacksByStackType[stackType]->end()) // if we haven't had any stacks for this size yet
 		{
 			if (!g_MyStlAllocStats._fReachedMemLimit)
@@ -505,17 +505,13 @@ bool CollectStack(PVOID addrAlloc, StackType stackType, DWORD stackSubType, DWOR
 			{
 				g_pmapAllocToStackHash->insert(mapAllocToStackHash::value_type(addrAlloc, PerAllocData{ stackHash }));
 			}
-			if (g_pmapAllocToStackHash->size() == 100)// conditional bpts toooo slow.
-			{
-				auto x = 2;
-			}
 		}
 	}
 	catch (const std::bad_alloc&)
 	{
 		g_MyStlAllocStats._fReachedMemLimit = true;
 	}
-	if (fDidCollectStack && !g_MyStlAllocStats._fReachedMemLimit)
+	if (!g_MyStlAllocStats._fReachedMemLimit)
 	{
 		if (g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] >= g_MyStlAllocLimit)
 		{
@@ -577,35 +573,34 @@ HRESULT GetCollectedAllocStacks(long allocSize, long* pnumStacks, long* pAddress
 {
 	if (g_pmapStacksByStackType != nullptr)
 	{
-		*pnumStacks = g_pmapStacksByStackType[StackTypeHeapAlloc]->size();
 		for (auto& itmSize : *(g_pmapStacksByStackType[StackTypeHeapAlloc]))
 		{
-			if (itmSize.first == allocSize)
+			if (itmSize.first == allocSize) // for a given size, e.g. 1048576
 			{
-				for (auto& itm : itmSize.second._stacks)
+				*pnumStacks = itmSize.second._stacks.size();
+				CollectedStack* pCollectedStack = (CollectedStack*)HeapAlloc(GetProcessHeap(), 0, *pnumStacks * sizeof(CollectedStack));
+				*pAddresses = (long)pCollectedStack;
+				if (pCollectedStack == nullptr)
 				{
-					CollectedStack* pCollectedStack = (CollectedStack*)CoTaskMemAlloc(sizeof(CollectedStack));
-					if (pCollectedStack == nullptr)
-					{
-						return E_FAIL;
-					}
+					return E_FAIL;
+				}
+				for (auto& itm : itmSize.second._stacks) // there can be multiple diff stacks allocating that size
+				{
 					pCollectedStack->stackHash = itm.second._stackHash;
 					pCollectedStack->numOccur = itm.second._nOccur;
 					pCollectedStack->numFrames = itm.second._vecFrames.size();
-					UINT *ptr = (UINT *)CoTaskMemAlloc(pCollectedStack->numFrames * sizeof(PVOID));
+					UINT* ptr = (UINT*)HeapAlloc(GetProcessHeap(), 0, pCollectedStack->numFrames * sizeof(PVOID));
 					if (ptr == nullptr)
 					{
 						return E_FAIL;
 					}
-					pCollectedStack->pFrameArray = (LONG) ptr;
+					pCollectedStack->pFrameArray = (LONG)ptr;
 					for (auto frame : itm.second._vecFrames)
 					{
 						*ptr++ = (UINT)frame;
 					}
+					pCollectedStack++;
 				}
-				//ptr[0] = (UINT)itm.first;
-				//ptr[1] = itm.second.stackHash;
-				//ptr += 2;
 			}
 		}
 	}

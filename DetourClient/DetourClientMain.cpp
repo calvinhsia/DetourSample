@@ -234,7 +234,7 @@ PVOID WINAPI MyHeapReAlloc( // no re-new
 )
 {
 	bool IsTracked = false;
-	PVOID pNewMem;
+	PVOID pNewMem = {};
 
 	//LPVOID pBlock = (PBYTE)lpMem - nExtraBytes;
 	//if (((PDWORD)pBlock)[0] == MySignature)
@@ -544,8 +544,8 @@ DWORD WINAPI ThreadRoutine(PVOID param)
 
 void DoLotsOfThreads()
 {
-	DWORD dwThreadIds[NUMTHREADS];
-	HANDLE hThreads[NUMTHREADS];
+	DWORD dwThreadIds[NUMTHREADS] = {};
+	HANDLE hThreads[NUMTHREADS] = {};
 	for (int iter = 0; iter < 100; iter++)
 	{
 		for (int iThread = 0; iThread < NUMTHREADS; iThread++)

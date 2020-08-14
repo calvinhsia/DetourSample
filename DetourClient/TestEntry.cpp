@@ -74,7 +74,7 @@ public:
 		auto res = fnRedirectDetour(DTF_GetModuleFileNameA, MyGetModuleFileNameA, (PVOID*)&g_real_GetModuleFileNameA);
 		VSASSERT(res == S_OK, "Redirecting detour to MyGetModuleFileNameA");
 
-		char szBuff[MAX_PATH];
+		char szBuff[MAX_PATH] = {};
 		auto len = GetModuleFileNameA(0, szBuff, sizeof(szBuff));
 
 		HeapLock(GetProcessHeap());
@@ -158,13 +158,16 @@ public:
 		if (g_pmapAllocToStackHash != nullptr)
 		{
 			*pnumAllocs = g_pmapAllocToStackHash->size();
-			*pAddresses = (long)CoTaskMemAlloc(*pnumAllocs * 2 * sizeof(PVOID));
+			*pAddresses = (long)HeapAlloc(GetProcessHeap(), 0, *pnumAllocs * 2 * sizeof(PVOID));
+			if (*pAddresses == 0)
+			{
+				return E_FAIL;
+			}
 			UINT * ptr = (UINT *)*pAddresses;
 			for (auto& itm : *g_pmapAllocToStackHash)
 			{
-				ptr[0] = (UINT)itm.first;
-				ptr[1] = itm.second.stackHash;
-				ptr += 2;
+				*ptr++ = (UINT)itm.first;
+				*ptr++ = itm.second.stackHash;
 			}
 		}
 		return S_OK;
@@ -176,16 +179,16 @@ public:
 	}
 	STDMETHOD(GetCollectedAllocStacks2)(long* pnumStacks, long *ptrArray, CollectedStack *pCollectedStacks)
 	{
-		auto ptr = (CollectedStack*)CoTaskMemAlloc(sizeof(CollectedStack));
-		*ptrArray = (long )ptr;
-		if (pCollectedStacks != nullptr)
-		{
-			pCollectedStacks = ptr;
-		}
-		*pnumStacks = 1;
-		ptr->numFrames = 2;
-		ptr->numOccur = 3;
-		ptr->numFrames = 0;
+		//auto ptr = (CollectedStack*)CoTaskMemAlloc(sizeof(CollectedStack));
+		//*ptrArray = (long )ptr;
+		//if (pCollectedStacks != nullptr)
+		//{
+		//	pCollectedStacks = ptr;
+		//}
+		//*pnumStacks = 1;
+		//ptr->numFrames = 2;
+		//ptr->numOccur = 3;
+		//ptr->numFrames = 0;
 		return S_OK;
 	}
 
