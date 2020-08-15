@@ -112,6 +112,7 @@ public:
 		Real_RtlAllocateHeap = nullptr; // we've stopped detouring: set the local ptr that MyStlAlloc uses to null
 		Real_RtlFreeHeap = nullptr;
 		Real_HeapReAlloc = nullptr;
+		g_real_GetModuleFileNameA = nullptr;
 		HeapUnlock(GetProcessHeap());
 		return S_OK;
 	}
@@ -153,7 +154,7 @@ public:
 		return S_OK;
 	}
 
-	STDMETHOD(GetLiveAllocAddresses)(long* pnumAllocs, long* pAddresses)
+	STDMETHOD(GetAllocationAddresses)(long* pnumAllocs, long* pAddresses)
 	{
 		if (g_pmapAllocToStackHash != nullptr)
 		{
@@ -176,20 +177,6 @@ public:
 	STDMETHOD(GetCollectedAllocStacks)(long allocSize, long* pnumStacks, long* pAddresses)
 	{
 		return ::GetCollectedAllocStacks(allocSize, pnumStacks, pAddresses);
-	}
-	STDMETHOD(GetCollectedAllocStacks2)(long* pnumStacks, long *ptrArray, CollectedStack *pCollectedStacks)
-	{
-		//auto ptr = (CollectedStack*)CoTaskMemAlloc(sizeof(CollectedStack));
-		//*ptrArray = (long )ptr;
-		//if (pCollectedStacks != nullptr)
-		//{
-		//	pCollectedStacks = ptr;
-		//}
-		//*pnumStacks = 1;
-		//ptr->numFrames = 2;
-		//ptr->numOccur = 3;
-		//ptr->numFrames = 0;
-		return S_OK;
 	}
 
 	STDMETHOD(CollectStacksUninitialize)()

@@ -47,6 +47,7 @@ bool MyTlsData::DllMain(ULONG ulReason)
 	{
 		UninitCollectStacks();
 		TlsFree(g_tlsIndex);
+		g_tlsIndex = 0;
 	}
 	break;
 	case DLL_THREAD_DETACH:
@@ -153,11 +154,11 @@ MyTlsData::~MyTlsData()
 }
 
 
-int g_MyRtlAllocateHeapCount = 0;
+long g_MyRtlAllocateHeapCount = 0;
 
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 {
-	g_MyRtlAllocateHeapCount++;
+	InterlockedIncrement(&g_MyRtlAllocateHeapCount);
 #if _DEBUG
 	static int recurcount = 0;
 	if (recurcount++ > NUMTHREADS)

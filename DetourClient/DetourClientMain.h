@@ -57,7 +57,7 @@ extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
 extern int g_NumFramesTocapture;
 extern int g_HeapAllocSizeMinValue;
 extern long g_MyStlAllocLimit;
-extern int g_MyRtlAllocateHeapCount;
+extern long g_MyRtlAllocateHeapCount;
 
 void SetHeapSizesToCollect(std::wstring Sizes);
 

@@ -135,14 +135,10 @@ namespace UnitTestProject1
 
         void GetStats(IntPtr HeapStats);
         void CollectStacksUninitialize();
-        void GetLiveAllocAddresses(
+        void GetAllocationAddresses(
             ref int numAllocs,
             ref IntPtr ptrData);
         void GetCollectedAllocStacks(int allocSize, ref int numStacks, ref IntPtr allocStacks);
-        //void GetCollectedAllocStacks2(
-        //    ref int numStacks,
-        //    ref IntPtr ptrArray, // free when done
-        //    [Out][MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.Struct, SizeParamIndex = 0)] CollectedStack[] collectedStacks);
     }
 
     [TestClass]
@@ -214,7 +210,7 @@ namespace UnitTestProject1
         {
             this._EnableLogging = false;
             this._DoCSLife = false;
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < 10; i++)
             {
                 LogMessage($"Stress iter {i}");
                 await TestCollectStacks();
@@ -264,7 +260,7 @@ namespace UnitTestProject1
                     var lstLiveAllocs = new List<LiveHeapAllocation>();
                     int numAllocs = 0;
                     IntPtr ptrData = IntPtr.Zero;
-                    obj.GetLiveAllocAddresses(ref numAllocs, ref ptrData);
+                    obj.GetAllocationAddresses(ref numAllocs, ref ptrData);
                     LogMessage($"# LiveAllocStacks (allocs that are still live)= {numAllocs}");
                     for (int i = 0; i < numAllocs; i++)
                     {
@@ -326,7 +322,7 @@ namespace UnitTestProject1
         {
             int nSizeSpecial = 1027;
             var strStacksToCollect = $"16:16, 32:32,{nSizeSpecial}:0";
-            await TestCollectStacksHelper(strStacksToCollect, nSizeSpecial, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 100, nThreads: 60);
+            await TestCollectStacksHelper(strStacksToCollect, nSizeSpecial, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 350, IsLimited: false, nThreads: 60);
         }
 
         [TestMethod]
@@ -334,7 +330,7 @@ namespace UnitTestProject1
         {
             int nSizeSpecial = 1027;
             var strStacksToCollect = $"16:16, 32:32,{nSizeSpecial}:0";
-            await TestCollectStacksHelper(strStacksToCollect, nSizeSpecial, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 4096, WaitForDoCsLife: true);
+            await TestCollectStacksHelper(strStacksToCollect, nSizeSpecial, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 4096, IsLimited: true, WaitForDoCsLife: true);
         }
 
 
@@ -347,6 +343,7 @@ namespace UnitTestProject1
             int StlAllocLimit,
             int nIter = 10000,
             int nThreads = 60,
+            bool IsLimited = false,
             bool WaitForDoCsLife = false)
         {
             using (var oInterop = new Interop())
@@ -373,8 +370,10 @@ namespace UnitTestProject1
                     lstTasks.Add(task);
                 }
                 await Task.WhenAll(lstTasks);
+//                await Task.Delay(TimeSpan.FromSeconds(1)); // let things settle down before undetouring
                 LogMessage($"Intentional Leaks {lstIntentionalLeaks.Count:n0}  TotAllocs={nIter * nThreads:n0}");
                 obj.StopDetours(pDetours);
+//                await Task.Delay(TimeSpan.FromSeconds(1)); // let things settle down before undetouring
                 var heapStats = new HeapCollectStats(strStacksToCollect);
                 var ptrHeapStats = heapStats.GetPointer();
                 obj.GetStats(ptrHeapStats);
@@ -387,6 +386,14 @@ namespace UnitTestProject1
                  });
                 Assert.IsTrue(heapStats.MyRtlAllocateHeapCount > nIter * nThreads, $"Expected > {nIter * nThreads}, got {heapStats.MyRtlAllocateHeapCount}");
                 var det = heapStats.details.Where(s => s.AllocSize == nSizeSpecial).Single();
+                if (IsLimited)
+                {
+                    Assert.IsTrue(heapStats.fReachedMemLimit, $"Test says limited memory, but didn't reach limit");
+                }
+                else
+                {
+                    Assert.IsFalse(heapStats.fReachedMemLimit, $"Test says not limited mem, but did reach limit");
+                }
                 if (!heapStats.fReachedMemLimit)
                 {
                     Assert.IsTrue(det.NumStacksCollected >= nIter, $"Expected numstacks collected ({det.NumStacksCollected}) > {nIter}");

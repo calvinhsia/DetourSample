@@ -301,6 +301,7 @@ void UninitCollectStacks()
 	//	MessageBoxA(0, "about to Heap destroy", "", 0);
 	VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] == 0, "Should be leakless");
 
+	g_MyRtlAllocateHeapCount = 0;
 
 	if (g_pmapThreadIdToTls != nullptr)
 	{

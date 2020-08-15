@@ -247,15 +247,17 @@ public:
 		DeleteCriticalSection(&g_csRedirect);
 	}
 private:
+	bool DidInstallDetours;
 	void InstallTheDetours()
 	{
+		DidInstallDetours = true;
 		_ASSERT_EXPR(g_arrDetourTableEntry[DTF_MAX - 1].RealFunction == 0, L"table should have 0 detour real funcrtions");
 		_ASSERT_EXPR(g_arrDetourTableEntry[DTF_MAX - 1].RedirectedFunction == 0, L"table should have 0 detour redirected");
 
 		// This is required because on Win7 ole32 directly links to the Kernel32 implementations of these functions
 		// and doesn't use Advapi
 		HMODULE hmodNtDll = GetModuleHandleA("ntdll");
-		OSVERSIONINFO osvi;
+		OSVERSIONINFO osvi = {};
 		osvi.dwOSVersionInfoSize = sizeof(osvi);
 		// Fix for warnings as errors when building against WinBlue build 9444.0.130614-1739
 		// warning C4996: 'GetVersionExW': was declared deprecated
@@ -339,36 +341,46 @@ private:
 
 	void UninstallDetours()
 	{
-		DetourTransactionBegin();
-		DETACH(&g_arrDetourTableEntry[DTF_MessageBoxA].RealFunction, MyStubMessageBoxA);
-		DETACH(&g_arrDetourTableEntry[DTF_GetModuleHandleA].RealFunction, MyStubGetModuleHandleA);
-		DETACH(&g_arrDetourTableEntry[DTF_GetModuleFileNameA].RealFunction, MyStubGetModuleFileNameA);
-		DETACH(&g_arrDetourTableEntry[DTF_RtlAllocateHeap].RealFunction, MyStubRtlAllocateHeap);
-		DETACH(&g_arrDetourTableEntry[DTF_HeapReAlloc].RealFunction, MyStubHeapReAlloc);
-		DETACH(&g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction, MyStubRtlFreeHeap);
+		if (DidInstallDetours)
+		{
+			DidInstallDetours = false;
+
+			DetourTransactionBegin();
+			DETACH(&g_arrDetourTableEntry[DTF_MessageBoxA].RealFunction, MyStubMessageBoxA);
+			DETACH(&g_arrDetourTableEntry[DTF_GetModuleHandleA].RealFunction, MyStubGetModuleHandleA);
+			DETACH(&g_arrDetourTableEntry[DTF_GetModuleFileNameA].RealFunction, MyStubGetModuleFileNameA);
+			DETACH(&g_arrDetourTableEntry[DTF_RtlAllocateHeap].RealFunction, MyStubRtlAllocateHeap);
+			DETACH(&g_arrDetourTableEntry[DTF_HeapReAlloc].RealFunction, MyStubHeapReAlloc);
+			DETACH(&g_arrDetourTableEntry[DTF_RtlFreeHeap].RealFunction, MyStubRtlFreeHeap);
 
 #ifndef _WIN64
-//		DETACH(&g_arrDetourTableEntry[DTF_NdrClientCall2].RealFunction, MyStubNdrClientCall2);
+			//		DETACH(&g_arrDetourTableEntry[DTF_NdrClientCall2].RealFunction, MyStubNdrClientCall2);
 #endif _WIN64
 
 
-		DETACH(&g_arrDetourTableEntry[DTF_RegCreateKeyExW].RealFunction, MyStubRegCreateKeyExW);
-		DETACH(&g_arrDetourTableEntry[DTF_RegOpenKeyExW].RealFunction, MyStubRegOpenKeyExW);
+			DETACH(&g_arrDetourTableEntry[DTF_RegCreateKeyExW].RealFunction, MyStubRegCreateKeyExW);
+			DETACH(&g_arrDetourTableEntry[DTF_RegOpenKeyExW].RealFunction, MyStubRegOpenKeyExW);
 
-		DETACH(&g_arrDetourTableEntry[DTF_EnableScrollbar].RealFunction, MyStubEnableScrollbar);
+			DETACH(&g_arrDetourTableEntry[DTF_EnableScrollbar].RealFunction, MyStubEnableScrollbar);
 
-		DETACH(&g_arrDetourTableEntry[DTF_PeekMessageA].RealFunction, MyStubPeekMessageA);
+			DETACH(&g_arrDetourTableEntry[DTF_PeekMessageA].RealFunction, MyStubPeekMessageA);
 
 
-		auto res = DetourTransactionCommit();
-		_ASSERT_EXPR(res == S_OK, "Failed to TransactionCommit uninstall");
+			auto res = DetourTransactionCommit();
+			_ASSERT_EXPR(res == S_OK, "Failed to TransactionCommit uninstall");
+			for (int i = 0; i < DTF_MAX; i++)
+			{
+				g_arrDetourTableEntry[i].RealFunction = nullptr;
+				g_arrDetourTableEntry[i].RedirectedFunction = nullptr;
+			}
+		}
 	}
 
 	VOID DetAttach(PVOID* ppbReal, PVOID pbMine, PCHAR psz)
 	{
 		LONG res = DetourAttach(ppbReal, pbMine);
 		if (res != S_OK) {
-			WCHAR szBuf[1024];
+			WCHAR szBuf[1024] = {};
 			swprintf_s(szBuf, _countof(szBuf), L"Attach detour Failed %S Errcode=%d)", psz, res);
 			_ASSERT_EXPR(false, szBuf);
 		}
@@ -378,12 +390,11 @@ private:
 	{
 		LONG res = DetourDetach(ppbReal, pbMine);
 		if (res != S_OK) {
-			WCHAR szBuf[1024];
+			WCHAR szBuf[1024] = {};
 			swprintf_s(szBuf, _countof(szBuf), L"Detach Failed %S Errcode=%d", psz, res);
 			_ASSERT_EXPR(false, szBuf);
 		}
 	}
-
 };
 
 CLINKAGE HRESULT EXPORT StartDetouring(PVOID* pDetours)
