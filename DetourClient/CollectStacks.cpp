@@ -25,7 +25,6 @@ vector<HeapSizeData> g_heapAllocSizes;
 CComAutoCriticalSection g_critSectHeapAlloc;
 
 
-typedef std::vector<PVOID, MySTLAlloc<PVOID, StlAllocUseCallStackHeap>> vecFrames;
 #include "winnt.h"
 #include "Windows.h"
 
@@ -107,7 +106,7 @@ struct CallStack
 			EBP_STACK_FRAME* currentEBP = static_cast<EBP_STACK_FRAME*>(ULongToPtr(context.Ebp));
 			EBP_STACK_FRAME* lastEBP = nullptr;
 			HANDLE hThread = GetCurrentThread();
-			LDT_ENTRY ldt_Enty;
+			LDT_ENTRY ldt_Enty = {};
 			if (GetThreadSelectorEntry(hThread, context.SegFs, &ldt_Enty))
 			{
 				PNT_TIB threadTib = static_cast<PNT_TIB>(((void*)((ldt_Enty.HighWord.Bits.BaseHi << 24) | (ldt_Enty.HighWord.Bits.BaseMid << 16) | ldt_Enty.BaseLow)));
@@ -132,11 +131,11 @@ struct CallStack
 				*pHash = hash;
 			}
 		}
-		__except(EXCEPTION_EXECUTE_HANDLER)
+		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
 
 		}
-		return nFrames - NumFramesToSkip > 0 ? nFrames - NumFramesToSkip : 0;
+		return nFrames - NumFramesToSkip - 1 > 0 ? nFrames - NumFramesToSkip - 1 : 0;
 	}
 #endif
 	CallStack& operator = (CallStack&& other) noexcept// move assignment
@@ -155,19 +154,14 @@ struct CallStack
 	vecFrames _vecFrames; // the stack frames
 };
 
-typedef std::unordered_map<UINT, CallStack, // can't use unique_ptr because can't override it's allocator and thus can cause deadlock
-	std::hash<UINT>,
-	std::equal_to<UINT>,
-	MySTLAlloc<std::pair<const UINT, CallStack>, StlAllocUseCallStackHeap >
-> mapStackHashToStack; // stackhash=>CallStack
 
-					   // represents the stacks for a particular stack type : e.g. the 100k allocations
-					   // if the stacks are identical, the count is bumped.
+// represents the stacks for a particular stack type : e.g. the 100k allocations
+// if the stacks are identical, the count is bumped.
 struct StacksForStackType
 {
-	StacksForStackType(int numFramesToSkip)
+	StacksForStackType(int numFramesToSkip, ULONG* pStackHash)
 	{
-		AddNewStack(numFramesToSkip);
+		AddNewStack(numFramesToSkip, pStackHash);
 	}
 	StacksForStackType(StacksForStackType&& other) noexcept// move constructor
 	{
@@ -181,13 +175,14 @@ struct StacksForStackType
 		}
 		return *this;
 	}
-	bool AddNewStack(int numFramesToSkip)
+	bool AddNewStack(int numFramesToSkip, ULONG* pStackHash)
 	{
 		bool fDidAdd = false;
 		if (!g_MyStlAllocStats._fReachedMemLimit)
 		{
 			CallStack stack(numFramesToSkip);
 			auto hash = stack._stackHash;
+			*pStackHash = hash;
 			auto res = _stacks.find(hash);
 			if (res == _stacks.end())
 			{
@@ -224,18 +219,12 @@ struct StacksForStackType
 
 };
 
-typedef UINT mapKey;
-
-typedef std::unordered_map<mapKey, StacksForStackType,
-	std::hash<mapKey>,
-	std::equal_to<mapKey>,
-	MySTLAlloc<std::pair<const mapKey, StacksForStackType>, StlAllocUseCallStackHeap>
-> mapStacksByStackType;
 
 // map the Size of an alloc to all the stacks that allocated that size.
 // note: if we're looking for all allocs of a specific size (e.g. 1Mb), then no need for a map by size (because all keys will be the same): more efficient to just use a mapStacks
 
 mapStacksByStackType* g_pmapStacksByStackType[StackTypeMax];
+mapAllocToStackHash* g_pmapAllocToStackHash;
 
 StlAllocStats g_MyStlAllocStats;
 
@@ -255,42 +244,64 @@ void InitCollectStacks()
 	g_pmapThreadIdToTls = new (allocTls.allocate(1)) mapThreadIdToTls();
 
 
-
-	// init stack maps
-	// create an allocator type for BYTE from the same allocator as the map
-	using myStackTypeAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<mapStacksByStackType>;
-	// create an instance of the allocator type
-	mapStacksByStackType::allocator_type alloc_type;
-	myStackTypeAllocator allocator(alloc_type);
-	for (int i = 0; i < StackTypeMax; i++)
 	{
-		// create using our allocator using placement new 
-		g_pmapStacksByStackType[i] = new (allocator.allocate(1)) mapStacksByStackType();
+		// init stack maps
+		// create an allocator type for BYTE from the same allocator as the map
+		using myStackTypeAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<mapStacksByStackType>;
+		// create an instance of the allocator type
+		mapStacksByStackType::allocator_type alloc_type;
+		myStackTypeAllocator allocator(alloc_type);
+		for (int i = 0; i < StackTypeMax; i++)
+		{
+			// create using our allocator using placement new 
+			g_pmapStacksByStackType[i] = new (allocator.allocate(1)) mapStacksByStackType();
+		}
+	}
+	{
+		using myAllocToStackHashAllocator = typename allocator_traits<mapAllocToStackHash::allocator_type>::rebind_alloc<mapAllocToStackHash>;
+		mapAllocToStackHash::allocator_type alloc_type;
+		myAllocToStackHashAllocator allocator(alloc_type);
+		g_pmapAllocToStackHash = new (allocator.allocate(1)) mapAllocToStackHash();
 	}
 }
 
 // call after undetouring
 void UninitCollectStacks()
 {
-	// create an allocator type for BYTE from the same allocator as the map
-	using myByteAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<mapStacksByStackType>;
-	// create an instance of the allocator type
-	mapStacksByStackType::allocator_type alloc_type;
-	myByteAllocator allocator(alloc_type);
-
-	CComCritSecLock<decltype(g_critSectHeapAlloc)> lock(g_critSectHeapAlloc);
-	for (int i = 0; i < StackTypeMax; i++)
 	{
-		if (g_pmapStacksByStackType[i] != nullptr)
+		// create an allocator type for BYTE from the same allocator as the map
+		using myByteAllocator = typename allocator_traits<mapStacksByStackType::allocator_type>::rebind_alloc<mapStacksByStackType>;
+		// create an instance of the allocator type
+		mapStacksByStackType::allocator_type alloc_type;
+		myByteAllocator allocator(alloc_type);
+
+		CComCritSecLock<decltype(g_critSectHeapAlloc)> lock(g_critSectHeapAlloc);
+		for (int i = 0; i < StackTypeMax; i++)
 		{
-			g_pmapStacksByStackType[i]->~mapStacksByStackType(); // invoke dtor
-			allocator.deallocate(g_pmapStacksByStackType[i], 1); // delete the placement new
-			g_pmapStacksByStackType[i] = nullptr;
+			if (g_pmapStacksByStackType[i] != nullptr)
+			{
+				g_pmapStacksByStackType[i]->~mapStacksByStackType(); // invoke dtor
+				allocator.deallocate(g_pmapStacksByStackType[i], 1); // delete the placement new
+				g_pmapStacksByStackType[i] = nullptr;
+			}
 		}
 	}
+	{
+		if (g_pmapAllocToStackHash != nullptr)
+		{
+			using myAllocToStackHashAllocator = typename allocator_traits<mapAllocToStackHash::allocator_type>::rebind_alloc<mapAllocToStackHash>;
+			mapAllocToStackHash::allocator_type alloc_type;
+			myAllocToStackHashAllocator allocator(alloc_type);
+			g_pmapAllocToStackHash->~mapAllocToStackHash(); // invoke dtor
+			allocator.deallocate(g_pmapAllocToStackHash, 1); // delete the placement new
+			g_pmapAllocToStackHash = nullptr;
+		}
+	}
+
 	//	MessageBoxA(0, "about to Heap destroy", "", 0);
 	VSASSERT(g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] == 0, "Should be leakless");
 
+	g_MyRtlAllocateHeapCount = 0;
 
 	if (g_pmapThreadIdToTls != nullptr)
 	{
@@ -351,7 +362,6 @@ public:
 	mapHashToStack _mapHashToStack;
 
 };
-
 
 typedef unordered_map<mapKey, unique_ptr<StkForStackType>> mapStksByStkType;
 
@@ -440,7 +450,7 @@ LONGLONG GetNumStacksCollected()
 }
 
 // extraInfo can be e.g. elapsed ticks. Don't store in stacks, but raise ETW event with it
-bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraInfo, int numFramesToSkip) //noexcept
+bool CollectStack(PVOID addrAlloc, StackType stackType, DWORD stackSubType, DWORD extraInfo, int numFramesToSkip) //noexcept
 {
 	bool fDidCollectStack = false;
 	try
@@ -461,12 +471,17 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		// We want to use the size as the key: see if we've seen this key before
 		mapKey key(stackSubType);
 		CComCritSecLock<decltype(g_critSectHeapAlloc)> lock(g_critSectHeapAlloc);
-		auto res = g_pmapStacksByStackType[stackType]->find(key);
-		if (res == g_pmapStacksByStackType[stackType]->end())
+		auto res = g_pmapStacksByStackType[stackType]->find(key); // find the stacks per size 
+		ULONG stackHash = {};
+		if (res == g_pmapStacksByStackType[stackType]->end()) // if we haven't had any stacks for this size yet
 		{
 			if (!g_MyStlAllocStats._fReachedMemLimit)
 			{
-				g_pmapStacksByStackType[stackType]->insert(mapStacksByStackType::value_type(key, move(StacksForStackType(numFramesToSkip))));
+				g_pmapStacksByStackType[stackType]->insert(
+					mapStacksByStackType::value_type(
+						key, move(StacksForStackType(numFramesToSkip, &stackHash))
+					)
+				);
 				fDidCollectStack = true;
 			}
 			else
@@ -477,14 +492,27 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		else
 		{
 			// we still want to calc stack hash and bump count if stack already collected
-			fDidCollectStack = res->second.AddNewStack(numFramesToSkip);
+			fDidCollectStack = res->second.AddNewStack(numFramesToSkip, &stackHash);
+		}
+		if (!g_MyStlAllocStats._fReachedMemLimit)
+		{
+			auto resIt = g_pmapAllocToStackHash->find(addrAlloc);
+			if (resIt != g_pmapAllocToStackHash->end())
+			{
+				//				g_pmapAllocToStackHash->erase(addrAlloc);
+				resIt->second.stackHash = stackHash;// just update the stack hash for this alloc
+			}
+			else
+			{
+				g_pmapAllocToStackHash->insert(mapAllocToStackHash::value_type(addrAlloc, PerAllocData{ stackHash }));
+			}
 		}
 	}
 	catch (const std::bad_alloc&)
 	{
 		g_MyStlAllocStats._fReachedMemLimit = true;
 	}
-	if (fDidCollectStack && !g_MyStlAllocStats._fReachedMemLimit)
+	if (!g_MyStlAllocStats._fReachedMemLimit)
 	{
 		if (g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap] >= g_MyStlAllocLimit)
 		{
@@ -540,4 +568,42 @@ bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraI
 		}
 	}
 	return fDidCollectStack;
+}
+
+HRESULT GetCollectedAllocStacks(long allocSize, long* pnumStacks, long* pAddresses)
+{
+	if (g_pmapStacksByStackType != nullptr)
+	{
+		for (auto& itmSize : *(g_pmapStacksByStackType[StackTypeHeapAlloc]))
+		{
+			if (itmSize.first == allocSize) // for a given size, e.g. 1048576
+			{
+				*pnumStacks = itmSize.second._stacks.size();
+				CollectedStack* pCollectedStack = (CollectedStack*)HeapAlloc(GetProcessHeap(), 0, *pnumStacks * sizeof(CollectedStack));
+				*pAddresses = (long)pCollectedStack;
+				if (pCollectedStack == nullptr)
+				{
+					return E_FAIL;
+				}
+				for (auto& itm : itmSize.second._stacks) // there can be multiple diff stacks allocating that size
+				{
+					pCollectedStack->stackHash = itm.second._stackHash;
+					pCollectedStack->numOccur = itm.second._nOccur;
+					pCollectedStack->numFrames = itm.second._vecFrames.size();
+					UINT* ptr = (UINT*)HeapAlloc(GetProcessHeap(), 0, pCollectedStack->numFrames * sizeof(PVOID));
+					if (ptr == nullptr)
+					{
+						return E_FAIL;
+					}
+					pCollectedStack->pFrameArray = (LONG)ptr;
+					for (auto frame : itm.second._vecFrames)
+					{
+						*ptr++ = (UINT)frame;
+					}
+					pCollectedStack++;
+				}
+			}
+		}
+	}
+	return S_OK;
 }

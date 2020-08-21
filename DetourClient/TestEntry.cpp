@@ -1,5 +1,4 @@
 #include <windows.h>
-#import "..\UnitTestProject1\bin\Debug\UnitTestProject1.tlb"
 #include "atlbase.h"
 #include "atlcom.h"
 //#define _ITERATOR_DEBUG_LEVEL 0
@@ -49,7 +48,7 @@ public:
 	DECLARE_NOT_AGGREGATABLE(MyTest)
 	DECLARE_NO_REGISTRY()
 
-	STDMETHOD(raw_DoHeapStackTests)(long parm1, long* pparm2, BSTR bstrStrin, BSTR* pBstr)
+	STDMETHOD(DoHeapStackTests)(long parm1, long* pparm2, BSTR bstrStrin, BSTR* pBstr)
 	{
 		*pparm2 = parm1 + 1;
 		CComBSTR strIn(bstrStrin);
@@ -57,7 +56,7 @@ public:
 		*pBstr = strIn.Detach();// SysAllocString(strIn.m_str);
 		return S_OK;
 	}
-	STDMETHOD(raw_StartDetours)(long* pparm2)
+	STDMETHOD(StartDetours)(long* pparm2)
 	{
 		StartDetouring((PVOID*)pparm2);
 
@@ -66,13 +65,16 @@ public:
 		HMODULE hmDevenv = GetModuleHandleA("DetourLib.dll");
 
 		//	g_mapStacks = new (malloc(sizeof(mapStacks)) mapStacks(MySTLAlloc < pair<const SIZE_T, vecStacks>(GetProcessHeap());
-
+		if (hmDevenv == 0)
+		{
+			return E_FAIL;
+		}
 		auto fnRedirectDetour = reinterpret_cast<pfnRedirectDetour>(GetProcAddress(hmDevenv, REDIRECTDETOUR));
 		VSASSERT(fnRedirectDetour != nullptr, "Failed to get RedirectDetour");
 		auto res = fnRedirectDetour(DTF_GetModuleFileNameA, MyGetModuleFileNameA, (PVOID*)&g_real_GetModuleFileNameA);
 		VSASSERT(res == S_OK, "Redirecting detour to MyGetModuleFileNameA");
 
-		char szBuff[MAX_PATH];
+		char szBuff[MAX_PATH] = {};
 		auto len = GetModuleFileNameA(0, szBuff, sizeof(szBuff));
 
 		HeapLock(GetProcessHeap());
@@ -89,7 +91,7 @@ public:
 		HeapUnlock(GetProcessHeap());
 		return S_OK;
 	}
-	STDMETHOD(raw_SetHeapCollectParams)(
+	STDMETHOD(SetHeapCollectParams)(
 		BSTR HeapSizesToCollect,
 		long NumFramesToCapture,
 		long HeapAllocSizeMinValue,
@@ -101,32 +103,85 @@ public:
 		SetHeapSizesToCollect(HeapSizesToCollect);
 		return S_OK;
 	}
-	STDMETHOD(raw_GetHeapCollectionStats)(
-		long ptrHeapStats)
+
+
+	STDMETHOD(StopDetours)(long pDetours)
 	{
-		auto pHeapStats = (HeapCollectStats*)ptrHeapStats;
-		pHeapStats->MyRtlAllocateHeapCount = g_MyRtlAllocateHeapCount;
-		for (int i = 0; i < pHeapStats->NumDetailRecords; i++)
+		HeapLock(GetProcessHeap());
+		StopDetouring((PVOID)pDetours);
+		Real_RtlAllocateHeap = nullptr; // we've stopped detouring: set the local ptr that MyStlAlloc uses to null
+		Real_RtlFreeHeap = nullptr;
+		Real_HeapReAlloc = nullptr;
+		g_real_GetModuleFileNameA = nullptr;
+		HeapUnlock(GetProcessHeap());
+		return S_OK;
+	}
+
+	STDMETHOD(GetStats)(long ptrHeapStats)
+	{
+		if (ptrHeapStats != 0)
 		{
-			auto pHeapDetail = (HeapCollectStatDetail*)(ptrHeapStats + sizeof(HeapCollectStats) + i * sizeof(HeapCollectStatDetail));
-			auto sizeAlloc = pHeapDetail->AllocSize;
-			auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [sizeAlloc](HeapSizeData data)
-				{
-					return data._nSize == sizeAlloc;
-				});
-			VSASSERT(it != g_heapAllocSizes.end(), "size not found?");
-			pHeapDetail->NumStacks = it->_nStacksCollected;
+			// heapstats should be read before UuninitCollectStacks
+			auto pHeapStats = (HeapCollectStats*)ptrHeapStats;
+
+			pHeapStats->MyRtlAllocateHeapCount = g_MyRtlAllocateHeapCount;
+			pHeapStats->MyStlAllocLimit = g_MyStlAllocLimit;
+			pHeapStats->MyStlAllocCurrentTotalAlloc = g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[StlAllocUseCallStackHeap];
+			pHeapStats->MyStlAllocBytesEverAlloc = g_MyStlAllocStats._MyStlAllocBytesEverAlloc[StlAllocUseCallStackHeap];
+			pHeapStats->MyStlTotBytesEverFreed = g_MyStlAllocStats._MyStlTotBytesEverFreed[StlAllocUseCallStackHeap];
+			pHeapStats->NumUniqueStacks = g_MyStlAllocStats._NumUniqueStacks;
+			pHeapStats->nTotNumHeapAllocs = g_MyStlAllocStats._nTotNumHeapAllocs;
+			pHeapStats->nTotFramesCollected = g_MyStlAllocStats._nTotFramesCollected;
+			pHeapStats->TotNumBytesHeapAlloc = g_MyStlAllocStats._TotNumBytesHeapAlloc;
+			pHeapStats->NumStacksMissed = g_MyStlAllocStats._NumStacksMissed[StackTypeHeapAlloc];
+			auto x = g_pmapStacksByStackType[StackTypeHeapAlloc]->size();
+
+			pHeapStats->fReachedMemLimit = g_MyStlAllocStats._fReachedMemLimit;
+			for (int i = 0; i < pHeapStats->NumDetailRecords; i++)
+			{
+				auto pHeapDetail = (HeapCollectStatDetail*)(ptrHeapStats + sizeof(HeapCollectStats) + i * sizeof(HeapCollectStatDetail));
+				auto sizeAlloc = pHeapDetail->AllocSize;
+				auto it = find_if(g_heapAllocSizes.begin(), g_heapAllocSizes.end(), [sizeAlloc](HeapSizeData data)
+					{
+						return data._nSize == sizeAlloc;
+					});
+				VSASSERT(it != g_heapAllocSizes.end(), "size not found?");
+				pHeapDetail->NumStacksCollected = it->_nStacksCollected;
+				pHeapDetail->AllocThresh = it->_nThreshold;
+			}
+
 		}
 		return S_OK;
 	}
 
-
-	STDMETHOD(raw_StopDetours)(long pparm2)
+	STDMETHOD(GetAllocationAddresses)(long* pnumAllocs, long* pAddresses)
 	{
-		HeapLock(GetProcessHeap());
-		StopDetouring((PVOID)pparm2);
+		if (g_pmapAllocToStackHash != nullptr)
+		{
+			*pnumAllocs = g_pmapAllocToStackHash->size();
+			*pAddresses = (long)HeapAlloc(GetProcessHeap(), 0, *pnumAllocs * 2 * sizeof(PVOID));
+			if (*pAddresses == 0)
+			{
+				return E_FAIL;
+			}
+			UINT * ptr = (UINT *)*pAddresses;
+			for (auto& itm : *g_pmapAllocToStackHash)
+			{
+				*ptr++ = (UINT)itm.first;
+				*ptr++ = itm.second.stackHash;
+			}
+		}
+		return S_OK;
+	}
+
+	STDMETHOD(GetCollectedAllocStacks)(long allocSize, long* pnumStacks, long* pAddresses)
+	{
+		return ::GetCollectedAllocStacks(allocSize, pnumStacks, pAddresses);
+	}
+
+	STDMETHOD(CollectStacksUninitialize)()
+	{
 		UninitCollectStacks();
-		HeapUnlock(GetProcessHeap());
 		return S_OK;
 	}
 };

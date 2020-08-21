@@ -23,8 +23,8 @@ namespace UnitTestProject1
             [In, MarshalAs(UnmanagedType.LPStruct)] Guid riid,
             out IntPtr ppvObject);
 
-        delegate int CanUnloadNowRoutine();
-        CanUnloadNowRoutine _deldllCanUnloadNow;
+        public delegate int CanUnloadNowRoutine();
+        public CanUnloadNowRoutine _deldllCanUnloadNow;
 
         IntPtr _hModule = IntPtr.Zero;
         /// <summary>Creates com object with the given clsid in the specified file</summary>

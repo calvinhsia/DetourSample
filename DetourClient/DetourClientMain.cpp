@@ -47,6 +47,7 @@ bool MyTlsData::DllMain(ULONG ulReason)
 	{
 		UninitCollectStacks();
 		TlsFree(g_tlsIndex);
+		g_tlsIndex = 0;
 	}
 	break;
 	case DLL_THREAD_DETACH:
@@ -153,11 +154,11 @@ MyTlsData::~MyTlsData()
 }
 
 
-int g_MyRtlAllocateHeapCount = 0;
+long g_MyRtlAllocateHeapCount = 0;
 
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 {
-	g_MyRtlAllocateHeapCount++;
+	InterlockedIncrement(&g_MyRtlAllocateHeapCount);
 #if _DEBUG
 	static int recurcount = 0;
 	if (recurcount++ > NUMTHREADS)
@@ -165,7 +166,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 		//		_asm int 3
 	}
 #endif _DEBUG
-	PVOID pMem = nullptr;
+	PVOID pMem = Real_RtlAllocateHeap(hHeapHandle, dwFlags, size);
 	auto pMyTlsData = MyTlsData::GetTlsData();
 	if (pMyTlsData != nullptr)
 	{
@@ -203,7 +204,7 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 					{
 						if (it->_nThreshold == 0)
 						{
-							fDidCollectStack = CollectStack(StackTypeHeapAlloc,/*stackSubType*/ (DWORD)size, /*extra data*/NULL, /*numFramesToSkip*/1);
+							fDidCollectStack = CollectStack(pMem, StackTypeHeapAlloc,/*stackSubType*/ (DWORD)size, /*extra data*/NULL, /*numFramesToSkip*/1);
 							if (fDidCollectStack)
 							{
 								InterlockedIncrement(&it->_nStacksCollected);
@@ -219,12 +220,53 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 			pMyTlsData->_fIsInRtlAllocHeap = false;
 		}
 	}
-	pMem = Real_RtlAllocateHeap(hHeapHandle, dwFlags, size);
 #if _DEBUG
 	recurcount--;
 #endif _DEBUG
 	return pMem;
 }
+
+
+PVOID WINAPI MyHeapReAlloc( // no re-new
+	HANDLE hHeap,
+	DWORD dwFlags,
+	LPVOID lpMem,
+	SIZE_T dwBytes
+)
+{
+	bool IsTracked = false;
+	PVOID pNewMem = {};
+
+	//LPVOID pBlock = (PBYTE)lpMem - nExtraBytes;
+	//if (((PDWORD)pBlock)[0] == MySignature)
+	//{
+	//    DWORD dwSizeAlloc = ((PDWORD)pBlock)[1];
+	//    if (UnCollectStack(dwSizeAlloc))
+	//    {
+	//        IsTracked = true;
+
+	//        pNewMem = MyRtlAllocateHeap(hHeap, dwFlags, dwBytes);
+	//        memmove(pNewMem, lpMem, dwBytes < dwSizeAlloc ? dwBytes : dwSizeAlloc);
+	//    }
+	//}
+	if (!IsTracked)
+	{
+		pNewMem = Real_HeapReAlloc(hHeap, dwFlags, lpMem, dwBytes);
+	}
+	return pNewMem;
+}
+
+
+BOOL WINAPI MyRtlFreeHeap(
+	HANDLE hHeap,
+	DWORD dwFlags,
+	LPVOID lpMem
+)
+{
+	auto res = Real_RtlFreeHeap(hHeap, dwFlags, lpMem);
+	return res;
+}
+
 
 
 #ifndef _WIN64
@@ -322,46 +364,6 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size)
 //}
 #endif _WIN64
 
-PVOID WINAPI MyHeapReAlloc( // no re-new
-	HANDLE hHeap,
-	DWORD dwFlags,
-	LPVOID lpMem,
-	SIZE_T dwBytes
-)
-{
-	bool IsTracked = false;
-	PVOID pNewMem;
-
-	//LPVOID pBlock = (PBYTE)lpMem - nExtraBytes;
-	//if (((PDWORD)pBlock)[0] == MySignature)
-	//{
-	//    DWORD dwSizeAlloc = ((PDWORD)pBlock)[1];
-	//    if (UnCollectStack(dwSizeAlloc))
-	//    {
-	//        IsTracked = true;
-
-	//        pNewMem = MyRtlAllocateHeap(hHeap, dwFlags, dwBytes);
-	//        memmove(pNewMem, lpMem, dwBytes < dwSizeAlloc ? dwBytes : dwSizeAlloc);
-	//    }
-	//}
-	if (!IsTracked)
-	{
-		pNewMem = Real_HeapReAlloc(hHeap, dwFlags, lpMem, dwBytes);
-	}
-	return pNewMem;
-}
-
-
-BOOL WINAPI MyRtlFreeHeap(
-	HANDLE hHeap,
-	DWORD dwFlags,
-	LPVOID lpMem
-)
-{
-	auto res = Real_RtlFreeHeap(hHeap, dwFlags, lpMem);
-	return res;
-}
-
 decltype(&MessageBoxA) g_real_MessageBoxA;
 int WINAPI MyMessageBoxA(
 	_In_opt_ HWND hWnd,
@@ -423,7 +425,10 @@ void HookInMyOwnVersion(BOOL fHook)
 	HMODULE hmDevenv = GetModuleHandleA("DetourLib.dll");
 
 	//	g_mapStacks = new (malloc(sizeof(mapStacks)) mapStacks(MySTLAlloc < pair<const SIZE_T, vecStacks>(GetProcessHeap());
-
+	if (hmDevenv == 0)
+	{
+		return;
+	}
 	auto fnRedirectDetour = reinterpret_cast<pfnRedirectDetour>(GetProcAddress(hmDevenv, REDIRECTDETOUR));
 	VSASSERT(fnRedirectDetour != nullptr, "Failed to get RedirectDetour");
 
@@ -540,8 +545,8 @@ DWORD WINAPI ThreadRoutine(PVOID param)
 
 void DoLotsOfThreads()
 {
-	DWORD dwThreadIds[NUMTHREADS];
-	HANDLE hThreads[NUMTHREADS];
+	DWORD dwThreadIds[NUMTHREADS] = {};
+	HANDLE hThreads[NUMTHREADS] = {};
 	for (int iter = 0; iter < 100; iter++)
 	{
 		for (int iThread = 0; iThread < NUMTHREADS; iThread++)

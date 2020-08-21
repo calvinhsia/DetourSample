@@ -12,6 +12,9 @@
 #include <memory>
 #include <functional>
 #include <algorithm>
+#import "..\UnitTestProject1\bin\Debug\UnitTestProject1.tlb" raw_interfaces_only
+
+using namespace UnitTestProject1;
 
 // the different types of callstacks we collect
 typedef enum {
@@ -30,7 +33,7 @@ typedef enum {
 
 void InitCollectStacks();
 void UninitCollectStacks();
-bool _stdcall CollectStack(StackType stackType, DWORD stackSubType, DWORD extraData, int numFramesToSkip);
+bool CollectStack(PVOID addrAlloc, StackType stackType, DWORD stackSubType, DWORD extraData, int numFramesToSkip);
 
 struct HeapSizeData
 {
@@ -54,28 +57,28 @@ extern pfnRtlAllocateHeap Real_RtlAllocateHeap;
 extern int g_NumFramesTocapture;
 extern int g_HeapAllocSizeMinValue;
 extern long g_MyStlAllocLimit;
-extern int g_MyRtlAllocateHeapCount;
+extern long g_MyRtlAllocateHeapCount;
 
 void SetHeapSizesToCollect(std::wstring Sizes);
 
 extern decltype(&GetModuleFileNameA) g_real_GetModuleFileNameA;
 DWORD WINAPI MyGetModuleFileNameA(
-    _In_opt_ HMODULE hModule,
-    _Out_writes_to_(nSize, ((return < nSize) ? (return +1) : nSize)) LPSTR lpFilename,
-    _In_ DWORD nSize
+	_In_opt_ HMODULE hModule,
+	_Out_writes_to_(nSize, ((return < nSize) ? (return +1) : nSize)) LPSTR lpFilename,
+	_In_ DWORD nSize
 );
 
 struct StlAllocStats
 {
-	long _MyStlAllocCurrentTotalAlloc[StlAllocMax];
-	long _MyStlAllocBytesEverAlloc[StlAllocMax];
-	long _MyStlTotBytesEverFreed[StlAllocMax];
+	long _MyStlAllocCurrentTotalAlloc[StlAllocMax] = {};
+	long _MyStlAllocBytesEverAlloc[StlAllocMax] = {};
+	long _MyStlTotBytesEverFreed[StlAllocMax] = {};
 
-	int _nTotNumHeapAllocs;// total # of allocations by AllocHeap for collected stacks
-	LONGLONG _TotNumBytesHeapAlloc; // total # bytes alloc'd by AllocHeap for collected stacks
+	int _nTotNumHeapAllocs = 0;// total # of allocations by AllocHeap for collected stacks
+	LONGLONG _TotNumBytesHeapAlloc = 0; // total # bytes alloc'd by AllocHeap for collected stacks
 
 	long _NumUniqueStacks = 0;
-	long _NumStacksMissed[StackTypeMax]; // missed due to out of memory
+	long _NumStacksMissed[StackTypeMax] = {}; // missed due to out of memory
 	bool _fReachedMemLimit = false;
 	long _nTotFramesCollected = 0;
 };
@@ -89,15 +92,15 @@ extern pfnHeapReAlloc Real_HeapReAlloc;
 extern pfnRtlFreeHeap Real_RtlFreeHeap;
 PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeapHandle, ULONG dwFlags, SIZE_T size);
 BOOL WINAPI MyRtlFreeHeap(
-    HANDLE hHeap,
-    DWORD dwFlags,
-    LPVOID lpMem
+	HANDLE hHeap,
+	DWORD dwFlags,
+	LPVOID lpMem
 );
 PVOID WINAPI MyHeapReAlloc( // no re-new
-    HANDLE hHeap,
-    DWORD dwFlags,
-    LPVOID lpMem,
-    SIZE_T dwBytes
+	HANDLE hHeap,
+	DWORD dwFlags,
+	LPVOID lpMem,
+	SIZE_T dwBytes
 );
 
 /*
@@ -151,24 +154,24 @@ public:
 
 struct MyTlsData
 {
-    static MyCriticalSectionNoDebugInfo g_tlsCritSect; // option for testing: use  CComAutoCriticalSection or MyCriticalSectionNoDebugInfo
-    static int g_tlsIndex;
-    static volatile bool g_IsCreatingTlsData;
-    static long g_numTlsInstances;
-    static bool DllMain(ULONG ulReason);
-    static MyTlsData* GetTlsData();
+	static MyCriticalSectionNoDebugInfo g_tlsCritSect; // option for testing: use  CComAutoCriticalSection or MyCriticalSectionNoDebugInfo
+	static int g_tlsIndex;
+	static volatile bool g_IsCreatingTlsData;
+	static long g_numTlsInstances;
+	static bool DllMain(ULONG ulReason);
+	static MyTlsData* GetTlsData();
 #if _DEBUG
-    static int _tlsSerialNo;
+	static int _tlsSerialNo;
 #endif _DEBUG
-    MyTlsData(); //ctor
-    ~MyTlsData(); //dtor
+	MyTlsData(); //ctor
+	~MyTlsData(); //dtor
 
 #if _DEBUG
-    DWORD _dwThreadId;
-    int _nSerialNo;
+	DWORD _dwThreadId;
+	int _nSerialNo;
 #endif _DEBUG
 
-    bool _fIsInRtlAllocHeap;
+	bool _fIsInRtlAllocHeap;
 };
 
 
@@ -176,114 +179,153 @@ struct MyTlsData
 template <class T, StlAllocHeapToUse stlAllocHeapToUse>
 struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use-a-custom-allocator-for-your-stl-container/
 {
-    typedef T value_type;
-    MySTLAlloc()
-    {
-    }
-    // A converting copy constructor:
-    template<class U, StlAllocHeapToUse stlAllocHeapToUse> MySTLAlloc(const MySTLAlloc<U, stlAllocHeapToUse>& other)
-    {
-    }
-    template<class U, StlAllocHeapToUse stlAllocHeapToUse> bool operator==(const MySTLAlloc<U, stlAllocHeapToUse>&) const
-    {
-        return true;
-    }
-    template<class U, StlAllocHeapToUse stlAllocHeapToUse> bool operator!=(const MySTLAlloc<U, stlAllocHeapToUse>&) const
-    {
-        return false;
-    }
-    template <class U>
-    struct rebind
-    {
-        typedef MySTLAlloc<U, stlAllocHeapToUse> other;
-    };
+	typedef T value_type;
+	MySTLAlloc()
+	{
+	}
+	// A converting copy constructor:
+	template<class U, StlAllocHeapToUse stlAllocHeapToUse> MySTLAlloc(const MySTLAlloc<U, stlAllocHeapToUse>& other)
+	{
+	}
+	template<class U, StlAllocHeapToUse stlAllocHeapToUse> bool operator==(const MySTLAlloc<U, stlAllocHeapToUse>&) const
+	{
+		return true;
+	}
+	template<class U, StlAllocHeapToUse stlAllocHeapToUse> bool operator!=(const MySTLAlloc<U, stlAllocHeapToUse>&) const
+	{
+		return false;
+	}
+	template <class U>
+	struct rebind
+	{
+		typedef MySTLAlloc<U, stlAllocHeapToUse> other;
+	};
 
-    T* allocate(const size_t n) const
-    {
-        if (n == 0)
-        {
-            return nullptr;
-        }
-        if (n > static_cast<size_t>(-1) / sizeof(T))
-        {
-            throw std::bad_array_new_length();
-        }
-        unsigned nSize = (UINT)n * sizeof(T);
-        T *pv = static_cast<T*>(MyAllocate(nSize));
-        if (pv == nullptr)
-        {
-            if (stlAllocHeapToUse == StlAllocUseCallStackHeap)
-            {
-                g_MyStlAllocStats._fReachedMemLimit = true;
-                throw std::bad_alloc();
-            }
-        }
-        InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], nSize);
-        InterlockedAdd(&g_MyStlAllocStats._MyStlAllocBytesEverAlloc[stlAllocHeapToUse], nSize);
-        return pv;
-    }
-    void deallocate(T* const p, size_t n) const
-    {
-        unsigned nSize = (UINT)n * sizeof(T);
-        InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], -((int)nSize));
-        InterlockedAdd(&g_MyStlAllocStats._MyStlTotBytesEverFreed[stlAllocHeapToUse], +(int)nSize);
-        MyFree((PVOID)p);
-    }
+	T* allocate(const size_t n) const
+	{
+		if (n == 0)
+		{
+			return nullptr;
+		}
+		if (n > static_cast<size_t>(-1) / sizeof(T))
+		{
+			throw std::bad_array_new_length();
+		}
+		unsigned nSize = (UINT)n * sizeof(T);
+		T* pv = static_cast<T*>(MyAllocate(nSize));
+		if (pv == nullptr)
+		{
+			if (stlAllocHeapToUse == StlAllocUseCallStackHeap)
+			{
+				g_MyStlAllocStats._fReachedMemLimit = true;
+				throw std::bad_alloc();
+			}
+		}
+		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], nSize);
+		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocBytesEverAlloc[stlAllocHeapToUse], nSize);
+		return pv;
+	}
+	void deallocate(T* const p, size_t n) const
+	{
+		unsigned nSize = (UINT)n * sizeof(T);
+		InterlockedAdd(&g_MyStlAllocStats._MyStlAllocCurrentTotalAlloc[stlAllocHeapToUse], -((int)nSize));
+		InterlockedAdd(&g_MyStlAllocStats._MyStlTotBytesEverFreed[stlAllocHeapToUse], +(int)nSize);
+		MyFree((PVOID)p);
+	}
 
-    PVOID MyAllocate(SIZE_T size) const
-    {
-        PVOID pmem;
-        HANDLE hHeap;
-        switch (stlAllocHeapToUse)
-        {
-        case StlAllocUseProcessHeap:
-            hHeap = GetProcessHeap();
-            break;
-        case StlAllocUseCallStackHeap:
-        case StlAllocUseTlsHeap:
-            hHeap = g_hHeapDetourData;
-            _ASSERT_EXPR(hHeap != 0, L"Heap null");
-            break;
-        default:
-            break;
-        }
-        if (Real_RtlAllocateHeap != nullptr)
-        {
-            pmem = Real_RtlAllocateHeap(hHeap, 0, size);
-        }
-        else
-        {
-            pmem = HeapAlloc(hHeap, 0, size);
-        }
-        return pmem;
-    }
+	PVOID MyAllocate(SIZE_T size) const
+	{
+		PVOID pmem = 0;
+		HANDLE hHeap = 0;
+		switch (stlAllocHeapToUse)
+		{
+		case StlAllocUseProcessHeap:
+			hHeap = GetProcessHeap();
+			break;
+		case StlAllocUseCallStackHeap:
+		case StlAllocUseTlsHeap:
+			hHeap = g_hHeapDetourData;
+			_ASSERT_EXPR(hHeap != 0, L"Heap null");
+			break;
+		default:
+			break;
+		}
+		if (Real_RtlAllocateHeap != nullptr)
+		{
+			pmem = Real_RtlAllocateHeap(hHeap, 0, size);
+		}
+		else
+		{
+			pmem = HeapAlloc(hHeap, 0, size);
+		}
+		return pmem;
+	}
 
-    void MyFree(PVOID pmem) const
-    {
-        HANDLE hHeap;
-        switch (stlAllocHeapToUse)
-        {
-        case StlAllocUseProcessHeap:
-            hHeap = GetProcessHeap();
-            break;
-        case StlAllocUseCallStackHeap:
-        case StlAllocUseTlsHeap:
-            hHeap = g_hHeapDetourData;
-            break;
-        default:
-            break;
-        }
-        HeapFree(hHeap, 0, pmem);
-    }
+	void MyFree(PVOID pmem) const
+	{
+		HANDLE hHeap = 0;
+		switch (stlAllocHeapToUse)
+		{
+		case StlAllocUseProcessHeap:
+			hHeap = GetProcessHeap();
+			break;
+		case StlAllocUseCallStackHeap:
+		case StlAllocUseTlsHeap:
+			hHeap = g_hHeapDetourData;
+			break;
+		default:
+			break;
+		}
+		HeapFree(hHeap, 0, pmem);
+	}
 
-    ~MySTLAlloc() {
+	~MySTLAlloc() {
 
-    }
+	}
 };
 
 // must be ptr to MyTlsData, because that's what's put in TlsSetValue and can't be moved around in memory
-typedef std::unordered_map < DWORD, MyTlsData *, std::hash<DWORD>, std::equal_to<DWORD>, MySTLAlloc<std::pair<DWORD, MyTlsData *>, StlAllocUseTlsHeap>> mapThreadIdToTls;
+typedef std::unordered_map < DWORD, MyTlsData*, std::hash<DWORD>, std::equal_to<DWORD>, MySTLAlloc<std::pair<DWORD, MyTlsData*>, StlAllocUseTlsHeap>> mapThreadIdToTls;
 extern mapThreadIdToTls* g_pmapThreadIdToTls;
+
+typedef std::vector<PVOID, MySTLAlloc<PVOID, StlAllocUseCallStackHeap>> vecFrames;
+
+struct CallStack;
+
+struct StacksForStackType;
+
+typedef std::unordered_map<UINT, CallStack, // can't use unique_ptr because can't override it's allocator and thus can cause deadlock
+	std::hash<UINT>,
+	std::equal_to<UINT>,
+	MySTLAlloc<std::pair<const UINT, CallStack>, StlAllocUseCallStackHeap >
+> mapStackHashToStack; // stackhash=>CallStack
+
+typedef UINT mapKey;
+
+typedef std::unordered_map<mapKey, StacksForStackType,
+	std::hash<mapKey>,
+	std::equal_to<mapKey>,
+	MySTLAlloc<std::pair<const mapKey, StacksForStackType>, StlAllocUseCallStackHeap>
+> mapStacksByStackType;
+
+// map the Size of an alloc to all the stacks that allocated that size.
+// note: if we're looking for all allocs of a specific size (e.g. 1Mb), then no need for a map by size (because all keys will be the same): more efficient to just use a mapStacks
+
+extern mapStacksByStackType* g_pmapStacksByStackType[StackTypeMax];
+
+
+struct PerAllocData
+{
+	ULONG stackHash;
+};
+typedef std::unordered_map<PVOID, PerAllocData,
+	std::hash<PVOID>,
+	std::equal_to<PVOID>,
+	MySTLAlloc<std::pair<const PVOID, PerAllocData>, StlAllocUseCallStackHeap >
+> mapAllocToStackHash; // alloc addr to stackhash
+
+extern mapAllocToStackHash* g_pmapAllocToStackHash;
+
 
 //template <class T>
 //inline void hash_combine(std::size_t & seed, const T & v)
@@ -314,5 +356,6 @@ void DoSomeManagedCode();
 void DoSomeThreadingModelExperiments();
 
 LONGLONG GetNumStacksCollected();
+HRESULT GetCollectedAllocStacks(long allocSize, long *pnumStacks, long *pAddresses);
 
 
