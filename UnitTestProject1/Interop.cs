@@ -26,7 +26,7 @@ namespace UnitTestProject1
         public delegate int CanUnloadNowRoutine();
         public CanUnloadNowRoutine _deldllCanUnloadNow;
 
-        IntPtr _hModule = IntPtr.Zero;
+        static IntPtr _hModule = IntPtr.Zero;
         /// <summary>Creates com object with the given clsid in the specified file</summary>
         /// <param name="fnameComClass">The path of the module</param>
         /// <param name="clsidOfComObj">The CLSID of the com object</param>
@@ -40,7 +40,10 @@ namespace UnitTestProject1
             int hr = HResult.E_FAIL;
             try
             {
-                _hModule = LoadLibrary(fnameComClass);
+                if (_hModule == IntPtr.Zero)
+                {
+                    _hModule = LoadLibrary(fnameComClass);
+                }
                 if (_hModule != IntPtr.Zero)
                 {
                     IntPtr optrDllGetClassObject = GetProcAddress(_hModule, "DllGetClassObject");
@@ -84,7 +87,7 @@ namespace UnitTestProject1
         {
             if (_hModule != null)
             {
-                FreeLibrary(_hModule);
+//                FreeLibrary(_hModule);
             }
         }
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]

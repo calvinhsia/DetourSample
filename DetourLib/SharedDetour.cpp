@@ -243,13 +243,17 @@ public:
 	}
 	~SharedDetours()
 	{
-		UninstallDetours();
+//		UninstallDetours();
 		DeleteCriticalSection(&g_csRedirect);
 	}
 private:
 	bool DidInstallDetours;
 	void InstallTheDetours()
 	{
+		if (DidInstallDetours == true)
+		{
+			return;
+		}
 		DidInstallDetours = true;
 		_ASSERT_EXPR(g_arrDetourTableEntry[DTF_MAX - 1].RealFunction == 0, L"table should have 0 detour real funcrtions");
 		_ASSERT_EXPR(g_arrDetourTableEntry[DTF_MAX - 1].RedirectedFunction == 0, L"table should have 0 detour redirected");

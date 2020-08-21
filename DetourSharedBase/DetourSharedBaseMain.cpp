@@ -85,6 +85,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
 		auto h = GetModuleHandleA(0);
 		StopDetouring(pDetours);
+		for (int i = 0; i < 100; i++)
+		{
+			auto xx = HeapAlloc(GetProcessHeap(), 0, i * 100);
+			HeapFree(GetProcessHeap(), 0, xx);
+		}
 	}
 
 	// detours are now uninstalled:

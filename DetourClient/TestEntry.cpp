@@ -109,10 +109,10 @@ public:
 	{
 		HeapLock(GetProcessHeap());
 		StopDetouring((PVOID)pDetours);
-		Real_RtlAllocateHeap = nullptr; // we've stopped detouring: set the local ptr that MyStlAlloc uses to null
-		Real_RtlFreeHeap = nullptr;
-		Real_HeapReAlloc = nullptr;
-		g_real_GetModuleFileNameA = nullptr;
+		//Real_RtlAllocateHeap = nullptr; // we've stopped detouring: set the local ptr that MyStlAlloc uses to null
+		//Real_RtlFreeHeap = nullptr;
+		//Real_HeapReAlloc = nullptr;
+		//g_real_GetModuleFileNameA = nullptr;
 		HeapUnlock(GetProcessHeap());
 		return S_OK;
 	}

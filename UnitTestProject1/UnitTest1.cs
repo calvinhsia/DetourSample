@@ -180,7 +180,7 @@ namespace UnitTestProject1
         [TestMethod]
         public void TestPlumbing()
         {
-            for (int iter = 0; iter < 100; iter++)
+            for (int iter = 0; iter < 10; iter++)
             {
                 using (var oInterop = new Interop())
                 {
@@ -191,7 +191,7 @@ namespace UnitTestProject1
                     obj.StartDetours(out var pDetours);
                     GetModuleFileName(IntPtr.Zero, sb, sb.Capacity);
                     Assert.AreEqual("InDetouredGetModuleFileName", sb.ToString());
-                    for (int i = 0; i < 1000; i++)
+                    for (int i = 0; i < 1; i++)
                     {
                         obj.DoHeapStackTests(parm1: 123, out var x, "StringIn", out var str);
                         Assert.AreEqual(124, x);
@@ -208,9 +208,10 @@ namespace UnitTestProject1
         [TestMethod]
         public async Task TestStress()
         {
+            await Task.Delay(TimeSpan.FromSeconds(15)); // time to attach windbg
             this._EnableLogging = false;
             this._DoCSLife = false;
-            for (int i = 0; i < 10; i++)
+            for (int i = 0; i < 600; i++)
             {
                 LogMessage($"Stress iter {i}");
                 await TestCollectStacks();
