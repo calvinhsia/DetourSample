@@ -204,6 +204,107 @@ namespace UnitTestProject1
                 }
             }
         }
+        [TestMethod]
+        public async Task TestStressStartup()
+        {
+            int nSizeSpecial = 1027;
+            var strStacksToCollect = $"{nSizeSpecial}:0";
+            using (var oInterop = new Interop())
+            {
+                var obj = GetTestHeapStacks(oInterop);
+                obj.SetHeapCollectParams(strStacksToCollect, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 10);
+                int nIter = 100;
+                int nThreads = 80;
+                bool DidStartDetouring = false;
+                IntPtr pDetours = IntPtr.Zero;
+                var lstTasks = new List<Task>
+                {
+                    Task.Run(() => {LogMessage("Start CSLife");DoCSLife(); })
+                };
+                var procHeap = Heap.GetProcessHeap();
+                int nIndex = 0;
+                for (int iThread = 0; iThread < nThreads; iThread++)
+                {
+                    var task = Task.Run(() =>
+                    {
+                        if (Interlocked.Increment(ref nIndex) == 4)
+                        {
+                            if (!DidStartDetouring)
+                            {
+                                LogMessage($"Start Detours");
+                                obj.StartDetours(out pDetours);
+                            }
+                        }
+                        LogMessage($"Doallocs");
+                        DoSomeNativeAllocs(nIter, iThread, nSizeSpecial, lstIntentionalLeaks: null); // don't do any intentional leaks
+                    });
+                    lstTasks.Add(task);
+                }
+                await Task.WhenAll(lstTasks);
+                obj.StopDetours(pDetours);
+
+                obj.CollectStacksUninitialize();
+                Marshal.ReleaseComObject(obj);
+                //                Assert.Fail($"#HeapAlloc={heapStats.MyRtlAllocateHeapCount}");
+            }
+        }
+
+        [TestMethod]
+        public async Task TestStressStartupNoTPool()
+        {
+            int nSizeSpecial = 1027;
+            var strStacksToCollect = $"{nSizeSpecial}:0";
+            using (var oInterop = new Interop())
+            {
+                var obj = GetTestHeapStacks(oInterop);
+                obj.SetHeapCollectParams(strStacksToCollect, NumFramesToCapture: 20, HeapAllocSizeMinValue: 1048576, StlAllocLimit: 65536 * 10);
+                int nIter = 100;
+                int nThreads = 100;
+                var lstTCS = new List<TaskCompletionSource<int>>();
+                for (int i = 0; i < nThreads + 1; i++)
+                {
+                    lstTCS.Add(new TaskCompletionSource<int>());
+                }
+                bool DidStartDetouring = false;
+                IntPtr pDetours = IntPtr.Zero;
+                var lstThreads = new List<Thread>();
+                var thrCSLife = new Thread((p) =>
+                {
+                    LogMessage("Start CSLife"); DoCSLife(); lstTCS[nThreads].SetResult(0);
+                });
+                thrCSLife.Start();
+                lstThreads.Add(thrCSLife);
+                var procHeap = Heap.GetProcessHeap();
+                int nIndex = 0;
+
+                for (int iThread = 0; iThread < nThreads; iThread++)
+                {
+                    var thrIndex = iThread; // lambda loop iterator
+                    var thr = new Thread((p) =>
+                    {
+                        if (Interlocked.Increment(ref nIndex) == 4)
+                        {
+                            if (!DidStartDetouring)
+                            {
+                                LogMessage($"Start Detours");
+                                obj.StartDetours(out pDetours);
+                            }
+                        }
+                        LogMessage($"Doallocs");
+                        DoSomeNativeAllocs(nIter, iThread, nSizeSpecial, lstIntentionalLeaks: null); // don't do any intentional leaks
+                        lstTCS[thrIndex].SetResult(0);
+                    });
+                    thr.Start();
+                    lstThreads.Add(thr);
+                }
+                await Task.WhenAll(lstTCS.Select(t => t.Task));
+                obj.StopDetours(pDetours);
+
+                obj.CollectStacksUninitialize();
+                Marshal.ReleaseComObject(obj);
+                //                Assert.Fail($"#HeapAlloc={heapStats.MyRtlAllocateHeapCount}");
+            }
+        }
 
         [TestMethod]
         public async Task TestStress()
@@ -370,10 +471,10 @@ namespace UnitTestProject1
                     lstTasks.Add(task);
                 }
                 await Task.WhenAll(lstTasks);
-//                await Task.Delay(TimeSpan.FromSeconds(1)); // let things settle down before undetouring
+                //                await Task.Delay(TimeSpan.FromSeconds(1)); // let things settle down before undetouring
                 LogMessage($"Intentional Leaks {lstIntentionalLeaks.Count:n0}  TotAllocs={nIter * nThreads:n0}");
                 obj.StopDetours(pDetours);
-//                await Task.Delay(TimeSpan.FromSeconds(1)); // let things settle down before undetouring
+                //                await Task.Delay(TimeSpan.FromSeconds(1)); // let things settle down before undetouring
                 var heapStats = new HeapCollectStats(strStacksToCollect);
                 var ptrHeapStats = heapStats.GetPointer();
                 obj.GetStats(ptrHeapStats);
@@ -419,7 +520,7 @@ namespace UnitTestProject1
             for (int i = 0; i < nIter; i++)
             {
                 var addr = Heap.HeapAlloc(procHeap, 0, nSizeSpecial);
-                if (_random.Next(100) < 50)
+                if (lstIntentionalLeaks != null && _random.Next(100) < 50)
                 {
                     var teststr = $"This is a test string {i} {iThread}\0";
                     var bytes = ASCIIEncoding.ASCII.GetBytes(teststr);
