@@ -582,6 +582,17 @@ void SetHeapSizesToCollect(wstring Sizes)
 	}
 }
 
+bool fContinueAllocating = true;
+DWORD WINAPI MyThreadStartRoutineForStress(LPVOID dword)
+{
+	auto hp = GetProcessHeap();
+	while (fContinueAllocating)
+	{
+		auto addr = HeapAlloc(hp, 0, 1024);
+		HeapFree(hp, 0, addr);
+	}
+	return 0;
+}
 
 CLINKAGE void EXPORT StartVisualStudio()
 {
@@ -690,7 +701,27 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 	RecurDownSomeLevels(200);
 
-	HookInMyOwnVersion(true);
+	int nThreads = 50;
+	fContinueAllocating = TRUE;
+	for (int i = 0; i < nThreads; i++)
+	{
+		DWORD dwThreadId;
+		HANDLE hThread = CreateThread(/*LPSECURITY_ATTRIBUTES=*/NULL,
+			/*dwStackSize=*/ NULL,
+			&MyThreadStartRoutineForStress,
+			/* lpThreadParameter*/0,
+			/*dwCreateFlags*/ 0, /// CREATE_SUSPENDED
+			&dwThreadId
+		);
+		std::wstring desc = L"Foo" + to_wstring(i);
+		SetThreadDescription(hThread, desc.c_str());
+		Sleep(0);
+		if (i == nThreads - 1)
+		{
+			HookInMyOwnVersion(true);
+		}
+	}
+
 
 
 
@@ -720,6 +751,8 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 	// now undo detour redirection, so detouring to stubs:
 	HookInMyOwnVersion(false);
+
+	fContinueAllocating = false;
 
 	GetModuleFileNameA(0, &buff[0], (DWORD)buff.length());
 

@@ -133,7 +133,7 @@ class MyCriticalSectionNoDebugInfo
 public:
 	MyCriticalSectionNoDebugInfo()
 	{
-		InitializeCriticalSectionEx(&_CritSect,/*spincount*/0, CRITICAL_SECTION_NO_DEBUG_INFO);
+		InitializeCriticalSectionEx(&_CritSect,/*spincount*/4000, CRITICAL_SECTION_NO_DEBUG_INFO);
 	}
 	~MyCriticalSectionNoDebugInfo()
 	{
