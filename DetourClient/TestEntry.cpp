@@ -100,6 +100,27 @@ public:
 		g_NumFramesTocapture = NumFramesToCapture;
 		g_HeapAllocSizeMinValue = HeapAllocSizeMinValue;
 		g_MyStlAllocLimit = StlAllocLimit;
+			return E_FAIL;
+		//HANDLE threadHandle = OpenThread(THREAD_ALL_ACCESS, FALSE, GetCurrentThreadId());
+		//if (threadHandle == 0)
+		//{
+		//	return E_FAIL;
+		//}
+		//if (SuspendThread(threadHandle) < 0)
+		//{
+		//	ResumeThread(threadHandle);
+		//	return E_FAIL;
+		//}
+		//CONTEXT threadContext;
+		//threadContext.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS;
+
+		//if (!GetThreadContext(threadHandle, &threadContext))
+		//{
+		//	ResumeThread(threadHandle);
+		//	return E_FAIL;
+		//}
+		//ResumeThread(threadHandle);
+
 		SetHeapSizesToCollect(HeapSizesToCollect);
 		return S_OK;
 	}

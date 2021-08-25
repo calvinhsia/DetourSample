@@ -713,8 +713,11 @@ CLINKAGE void EXPORT StartVisualStudio()
 			/*dwCreateFlags*/ 0, /// CREATE_SUSPENDED
 			&dwThreadId
 		);
-		std::wstring desc = L"Foo" + to_wstring(i);
-		SetThreadDescription(hThread, desc.c_str());
+		if (hThread != 0)
+		{
+			std::wstring desc = L"Foo" + to_wstring(i);
+			SetThreadDescription(hThread, desc.c_str());
+		}
 		Sleep(0);
 		if (i == nThreads - 1)
 		{

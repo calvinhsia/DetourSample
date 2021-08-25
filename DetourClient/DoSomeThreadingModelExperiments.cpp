@@ -34,6 +34,7 @@ void LogOutput(LPCWSTR wszFormat, ...)
 
 // see https://blogs.msdn.microsoft.com/calvin_hsia/2014/02/26/see-how-often-your-code-runs-and-how-much-time-it-takes/
 #include <initguid.h>
+#include <tuple>
 DEFINE_GUID(CLSID_MyObject,
     0xa7d0f17, 0x5c8d, 0x442b, 0xa3, 0x68, 0xd1, 0xdd, 0x36, 0x76, 0x71, 0xbb);
 
@@ -113,7 +114,7 @@ DWORD WINAPI MyThreadStartRoutine(PVOID param)
 
 void DoSomeThreadingModelExperiments()
 {
-    CoInitializeEx(0, COINIT_MULTITHREADED); //COINIT_APARTMENTTHREADED and COINIT_MULTITHREADED 
+    std::ignore = CoInitializeEx(0, COINIT_MULTITHREADED); //COINIT_APARTMENTTHREADED and COINIT_MULTITHREADED 
     CComObject<CMyObject>* pMyObj;
     HRESULT hr;
     hr = CComObject<CMyObject>::CreateInstance(&pMyObj);

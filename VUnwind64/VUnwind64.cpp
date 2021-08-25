@@ -24,30 +24,87 @@ typedef vector<PVOID> vecFrames;
 
 // https://github.com/electronicarts/EAThread/blob/master/source/pc/eathread_callstack_win64.cpp
 
-int GetCallStack(
-	_In_ CONTEXT context,
+
+/*
+
+
+https://github.com/JochenKalmbach/StackWalker
+
+https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getthreadcontext
+You cannot get a valid context for a running thread. Use the SuspendThread function to suspend the thread before calling GetThreadContext.
+
+If you call GetThreadContext for the current thread, the function returns successfully; however, the context returned is not valid.
+*/
+
+extern "C" int __declspec(dllexport) CALLBACK TestInterop(
+	_In_opt_ CONTEXT * pcontext,
 	_In_ int NumFramesToSkip,
 	_In_ int NumFramesToCapture,
-	__out_ecount_part(NumFramesToCapture, return) PVOID* pFrames,
-	_Out_opt_ PULONG pHash
+	__out_ecount_part(NumFramesToCapture, return) PVOID pFrames[],
+	_Out_opt_ PULONGLONG pHash
 )
 {
+	CONTEXT context = { 0 };
+	if (pHash != 0)
+	{
+		*pHash = 3;
+	}
+	if (pcontext == nullptr)
+	{
+		context.Rsi = 0;
+		context.Rip = 0;
+		context.P1Home = 1;
+		memset(&context, 0, 10);
+//		ZeroMemory(&context, 8);
+//		RtlCaptureContext(&context);
+//		pcontext = &context;
+	}
+	pFrames[0] = (PVOID)10;
+	pFrames[1] = (PVOID)11;
+	return 2;
+}
+
+
+extern "C" int __declspec(dllexport) CALLBACK GetCallStack(
+	_In_opt_ CONTEXT * pcontext,
+	_In_ int NumFramesToSkip,
+	_In_ int NumFramesToCapture,
+	__out_ecount_part(NumFramesToCapture, return) PVOID pFrames[],
+	_Out_opt_ PULONGLONG pHash
+)
+{
+	CONTEXT context = { 0 };
 	int nFrames = 0;
+	if (pHash != 0)
+	{
+		*pHash = 0;
+	}
+	if (pcontext == nullptr)
+	{
+		ZeroMemory(&context, sizeof(context));
+		RtlCaptureContext(&context);
+		pcontext = &context;
+	}
 	PRUNTIME_FUNCTION pRuntimeFunction;
 	ULONG64 nImageBase = 0;
 	ULONG64 nPrevImageBase = 0;
-	while (context.Rip)
+	while (pcontext->Rip)
 	{
 		nPrevImageBase = nImageBase;
-		pRuntimeFunction = (PRUNTIME_FUNCTION)RtlLookupFunctionEntry(context.Rip, &nImageBase, NULL /*unwindHistoryTable*/);
+		pRuntimeFunction = (PRUNTIME_FUNCTION)RtlLookupFunctionEntry(pcontext->Rip, &nImageBase, NULL /*unwindHistoryTable*/);
 		if (pRuntimeFunction)
 		{
 			PVOID handlerData = nullptr;
 			ULONG64        establisherFramePointers[2] = { 0, 0 };
-			RtlVirtualUnwind(UNW_FLAG_NHANDLER, nImageBase, context.Rip, pRuntimeFunction, &context, &handlerData, establisherFramePointers, NULL);
-			if (context.Rip)
+			RtlVirtualUnwind(UNW_FLAG_NHANDLER, nImageBase, pcontext->Rip, pRuntimeFunction, pcontext, &handlerData, establisherFramePointers, NULL);
+			if (pcontext->Rip)
 			{
-				pFrames[nFrames++] = (PVOID)context.Rip;
+				auto addr = (PVOID)pcontext->Rip;
+				if (pHash != 0)
+				{
+					pHash += (ULONGLONG)addr; // 32 bit val overflow ok... 
+				}
+				pFrames[nFrames++] = addr;
 				if (nFrames == NumFramesToCapture)
 				{
 					break;
@@ -56,6 +113,19 @@ int GetCallStack(
 		}
 
 	}
+	/*
+-		pFrames,10	0x000001fd28d3bbb0 {0x00007ff622794043 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 78}, 0x00007ff622794032 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 73}, ...}	void *[0x0000000a]
+		[0x00000000]	0x00007ff622794043 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 78}	void *
+		[0x00000001]	0x00007ff622794032 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 73}	void *
+		[0x00000002]	0x00007ff622794043 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 78}	void *
+		[0x00000003]	0x00007ff622794032 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 73}	void *
+		[0x00000004]	0x00007ff622794043 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 78}	void *
+		[0x00000005]	0x00007ff622794032 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 73}	void *
+		[0x00000006]	0x00007ff622794043 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 78}	void *
+		[0x00000007]	0x00007ff622794032 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 73}	void *
+		[0x00000008]	0x00007ff622794043 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 78}	void *
+		[0x00000009]	0x00007ff622794032 {VUnwind64.exe!RecurSomeLevels(int nLevel), Line 73}	void *
+	*/
 	return nFrames;
 }
 
@@ -63,18 +133,23 @@ void RecurSomeLevels(int nLevel)
 {
 	if (nLevel < 10)
 	{
-		RecurSomeLevels(nLevel + 1);
+		if (nLevel % 2 == 0)
+		{
+			RecurSomeLevels(nLevel + 1);
+		}
+		else
+		{
+			RecurSomeLevels(nLevel + 1);
+		}
 	}
 	else
 	{
 		try
 		{
-			CONTEXT context = { 0 };
 			vecFrames _vecFrames; // the stack frames
 			_vecFrames.resize(40);
-			RtlCaptureContext(&context);
-			ULONG pHash = 0;
-			int nFrames = GetCallStack(context, 1, 40, &_vecFrames[0], &pHash);
+			ULONGLONG pHash = 0;
+			int nFrames = GetCallStack(/*context*/nullptr, 1, 40, &_vecFrames[0], &pHash);
 			_vecFrames.resize(nFrames);
 
 		}
