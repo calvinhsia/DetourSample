@@ -9,12 +9,13 @@ namespace Test64
     public class Test64
     {
         public TestContext TestContext { get; set; }
-        delegate int delTestInterop(
-            IntPtr pContext,
-            int nSkipFrames,
-            int nFrames,
-            [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2)] IntPtr[] frames,
-            ref UInt64 pHash
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate void delTestInterop(
+            //IntPtr pContext,
+            //int nSkipFrames,
+            //int nFrames,
+            //[MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2)] IntPtr[] frames,
+            //ref UInt64 pHash
             );
 
         delegate int delGetCallStack(
@@ -29,35 +30,38 @@ namespace Test64
         public void TestMethod1()
         {
             var fname = @"C:\Users\calvinh\source\repos\DetourSample\x64\Debug\VUnwind64.exe";
+            fname = @"C:\Users\calvinh\Source\Repos\DetourSample\x64\Debug\Dll64.dll";
             var hmod = LoadLibrary(fname);
             {
-                var addr = GetProcAddress(hmod, "TestInterop");
-                var TestInterop = Marshal.GetDelegateForFunctionPointer<delTestInterop>(addr);
-                TestContext.WriteLine($"hmod = {hmod.ToInt64():x}  addr= {addr.ToInt64():x}   del = {TestInterop}");
-                UInt64 hash = 0;
-                int nFrames = 20;
+//                var addr = GetProcAddress(hmod, "TestInterop");
+//                var TestInterop = Marshal.GetDelegateForFunctionPointer<delTestInterop>(addr);
+//                TestContext.WriteLine($"hmod = {hmod.ToInt64():x}  addr= {addr.ToInt64():x}   del = {TestInterop}");
+//                UInt64 hash = 0;
+//                int nFrames = 20;
+//                var arrFrames = new IntPtr[nFrames];
+//                TestInterop(
+////                    IntPtr.Zero, 1, nFrames, arrFrames, ref hash
+//                    );
+//                //TestContext.WriteLine($"Res = {res}");
+//                Array.ForEach(arrFrames, (f) =>
+//                 {
+//                     TestContext.WriteLine($" {f.ToInt64():x}");
+
+//                 });
+            }
+            {
+                var addr = GetProcAddress(hmod, "GetCallStack");
+                var GetCallStack = Marshal.GetDelegateForFunctionPointer<delGetCallStack>(addr);
+                TestContext.WriteLine($"hmod = {hmod.ToInt64():x}  addr= {addr.ToInt64():x}   del = {GetCallStack}");
+                int nFrames = 200;
                 var arrFrames = new IntPtr[nFrames];
-                var res = TestInterop(IntPtr.Zero, 1, nFrames, arrFrames, ref hash);
-                TestContext.WriteLine($"Res = {res}");
+                UInt64 hash = 0;
+                var res = GetCallStack(pContext: IntPtr.Zero, nSkipFrames: 0, nFrames: nFrames, frames: arrFrames, pHash: ref hash);
                 Array.ForEach(arrFrames, (f) =>
                  {
                      TestContext.WriteLine($" {f.ToInt64():x}");
 
                  });
-            }
-            {
-                //var addr = GetProcAddress(hmod, "GetCallStack");
-                //var GetCallStack = Marshal.GetDelegateForFunctionPointer<delGetCallStack>(addr);
-                //TestContext.WriteLine($"hmod = {hmod.ToInt64():x}  addr= {addr.ToInt64():x}   del = {GetCallStack}");
-                //int nFrames = 20;
-                //var arrFrames = new IntPtr[nFrames];
-                //UInt64 hash = 0;
-                //var res = GetCallStack(pContext: IntPtr.Zero, nSkipFrames: 0, nFrames: nFrames, frames: arrFrames, pHash: ref hash);
-                //Array.ForEach(frames, (f) =>
-                // {
-                //     TestContext.WriteLine($" {f.ToInt64():x}");
-
-                // });
 
             }
 

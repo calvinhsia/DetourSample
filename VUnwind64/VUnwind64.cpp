@@ -27,6 +27,7 @@ typedef vector<PVOID> vecFrames;
 
 /*
 
+https://microsoft.visualstudio.com/OS/_git/os?path=%2Fxbox%2Flnm%2Fntos%2Frtl%2Famd64%2Fstkwalk.c&version=GBofficial%2F19h1_release_svc_kir1&_a=contents
 
 https://github.com/JochenKalmbach/StackWalker
 
@@ -36,32 +37,35 @@ You cannot get a valid context for a running thread. Use the SuspendThread funct
 If you call GetThreadContext for the current thread, the function returns successfully; however, the context returned is not valid.
 */
 
-extern "C" int __declspec(dllexport) CALLBACK TestInterop(
-	_In_opt_ CONTEXT * pcontext,
-	_In_ int NumFramesToSkip,
-	_In_ int NumFramesToCapture,
-	__out_ecount_part(NumFramesToCapture, return) PVOID pFrames[],
-	_Out_opt_ PULONGLONG pHash
+
+void dofoo()
+{
+	int foo[100];
+	//for (int i = 0; i < 100; i++)
+	//{
+	//	foo[i] = 0;
+	//}
+	//GetModuleHandle(0);
+	ZeroMemory(foo, 10);
+
+};
+
+extern "C" __declspec(dllexport) void WINAPI TestInterop(
+	//_In_opt_ CONTEXT * pcontext,
+	//_In_ int NumFramesToSkip,
+	//_In_ int NumFramesToCapture,
+	//__out_ecount_part(NumFramesToCapture, return) PVOID pFrames[],
+	//_Out_opt_ PULONGLONG pHash
 )
 {
-	CONTEXT context = { 0 };
-	if (pHash != 0)
-	{
-		*pHash = 3;
-	}
-	if (pcontext == nullptr)
-	{
-		context.Rsi = 0;
-		context.Rip = 0;
-		context.P1Home = 1;
-		memset(&context, 0, 10);
-//		ZeroMemory(&context, 8);
-//		RtlCaptureContext(&context);
-//		pcontext = &context;
-	}
-	pFrames[0] = (PVOID)10;
-	pFrames[1] = (PVOID)11;
-	return 2;
+	dofoo();
+//	memset(&foo, 0, 100);
+	//CONTEXT context;
+	//context.Rsi = 0;
+	//context.Rip = 0;
+	//context.P1Home = 1;
+	//memset(&context, 0, 10);
+//	return 2;
 }
 
 
