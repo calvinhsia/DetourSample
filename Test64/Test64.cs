@@ -18,15 +18,18 @@ namespace Test64
             //ref UInt64 pHash
             );
 
+//        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         delegate int delGetCallStack(
             IntPtr pContext,
             int nSkipFrames,
             int nFrames,
             [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2)] IntPtr[] frames,
+            ref int nFramesWritten,
             ref UInt64 pHash
             );
 
         [TestMethod]
+        [Ignore]
         public void TestMethod1()
         {
             var fname = @"C:\Users\calvinh\source\repos\DetourSample\x64\Debug\VUnwind64.exe";
@@ -50,18 +53,24 @@ namespace Test64
 //                 });
             }
             {
-                var addr = GetProcAddress(hmod, "GetCallStack");
+                var addr = GetProcAddress(hmod, "GetCallstack64");
                 var GetCallStack = Marshal.GetDelegateForFunctionPointer<delGetCallStack>(addr);
                 TestContext.WriteLine($"hmod = {hmod.ToInt64():x}  addr= {addr.ToInt64():x}   del = {GetCallStack}");
                 int nFrames = 200;
                 var arrFrames = new IntPtr[nFrames];
                 UInt64 hash = 0;
-                var res = GetCallStack(pContext: IntPtr.Zero, nSkipFrames: 0, nFrames: nFrames, frames: arrFrames, pHash: ref hash);
-                Array.ForEach(arrFrames, (f) =>
-                 {
-                     TestContext.WriteLine($" {f.ToInt64():x}");
+                int nFramesCollected = 0;
+                var hr = GetCallStack(pContext: IntPtr.Zero, nSkipFrames: 0, nFrames: nFrames, frames: arrFrames,nFramesWritten:ref nFramesCollected, pHash: ref hash);
+                TestContext.WriteLine($"hr = {hr} #frames = {nFramesCollected}  Hash = {hash:x}");
+                for (int i = 0; i < nFramesCollected; i++)
+                {
+                    TestContext.WriteLine($"{i,3} {arrFrames[i].ToInt64():x}");
+                }
+                //Array.ForEach(arrFrames, (f) =>
+                // {
+                //     TestContext.WriteLine($" {f.ToInt64():x}");
 
-                 });
+                // });
 
             }
 

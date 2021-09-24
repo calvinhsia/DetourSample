@@ -27,6 +27,8 @@ typedef vector<PVOID> vecFrames;
 
 /*
 
+https://accu.org/journals/overload/22/120/orr_1897/
+
 https://microsoft.visualstudio.com/OS/_git/os?path=%2Fxbox%2Flnm%2Fntos%2Frtl%2Famd64%2Fstkwalk.c&version=GBofficial%2F19h1_release_svc_kir1&_a=contents
 
 https://github.com/JochenKalmbach/StackWalker
@@ -50,7 +52,7 @@ void dofoo()
 
 };
 
-extern "C" __declspec(dllexport) void WINAPI TestInterop(
+extern "C" __declspec(dllexport) void __fastcall TestInterop(
 	//_In_opt_ CONTEXT * pcontext,
 	//_In_ int NumFramesToSkip,
 	//_In_ int NumFramesToCapture,
@@ -59,13 +61,29 @@ extern "C" __declspec(dllexport) void WINAPI TestInterop(
 )
 {
 	dofoo();
-//	memset(&foo, 0, 100);
-	//CONTEXT context;
-	//context.Rsi = 0;
-	//context.Rip = 0;
-	//context.P1Home = 1;
-	//memset(&context, 0, 10);
-//	return 2;
+	//	memset(&foo, 0, 100);
+		//CONTEXT context;
+		//context.Rsi = 0;
+		//context.Rip = 0;
+		//context.P1Home = 1;
+		//memset(&context, 0, 10);
+	//	return 2;
+}
+
+BOOL APIENTRY DllMain(HMODULE hModule,
+	DWORD  ul_reason_for_call,
+	LPVOID lpReserved
+)
+{
+	switch (ul_reason_for_call)
+	{
+	case DLL_PROCESS_ATTACH:
+	case DLL_THREAD_ATTACH:
+	case DLL_THREAD_DETACH:
+	case DLL_PROCESS_DETACH:
+		break;
+	}
+	return TRUE;
 }
 
 
@@ -106,7 +124,7 @@ extern "C" int __declspec(dllexport) CALLBACK GetCallStack(
 				auto addr = (PVOID)pcontext->Rip;
 				if (pHash != 0)
 				{
-					pHash += (ULONGLONG)addr; // 32 bit val overflow ok... 
+					*pHash += (ULONGLONG)addr; // 32 bit val overflow ok... 
 				}
 				pFrames[nFrames++] = addr;
 				if (nFrames == NumFramesToCapture)
@@ -150,11 +168,27 @@ void RecurSomeLevels(int nLevel)
 	{
 		try
 		{
-			vecFrames _vecFrames; // the stack frames
-			_vecFrames.resize(40);
-			ULONGLONG pHash = 0;
-			int nFrames = GetCallStack(/*context*/nullptr, 1, 40, &_vecFrames[0], &pHash);
-			_vecFrames.resize(nFrames);
+			{
+				vecFrames _vecFrames; // the stack frames
+				_vecFrames.resize(40);
+				ULONGLONG pHash = 0;
+				int nFrames = GetCallStack(/*context*/nullptr, 1, 40, &_vecFrames[0], &pHash);
+				_vecFrames.resize(nFrames);
+			}
+			{
+				vecFrames _vecFrames; // the stack frames
+				_vecFrames.resize(40);
+				ULONGLONG pHash = 0;
+
+				typedef int(WINAPI* pfnGetCallStack64)(PVOID pContext, int nSkipFrames, int numFrames, PVOID pFrames[], PINT nFramesWritten, PULONGLONG pHash);
+				auto hmod = LoadLibraryW(L"C:\\Users\\calvinh\\Source\\Repos\\DetourSample\\x64\\Debug\\Dll64.dll");
+				if (hmod != 0)
+				{
+					int nFramesWritten = 0;
+					auto addrGetCallStack64 = (pfnGetCallStack64)GetProcAddress(hmod, "GetCallstack64");
+					(*addrGetCallStack64)(nullptr, 1, 40, &_vecFrames[0], &nFramesWritten, &pHash);
+				}
+			}
 
 		}
 		catch (const std::exception&)
