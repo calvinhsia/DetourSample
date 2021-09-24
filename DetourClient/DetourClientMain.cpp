@@ -64,7 +64,8 @@ bool MyTlsData::DllMain(ULONG ulReason)
 			else
 			{
 				res->second->~MyTlsData();
-				// create an allocator type for BYTE from the same allocator at the map
+				TlsSetValue(g_tlsIndex, 0);
+				// create an allocator type for BYTE from the same allocator as the map
 				using myByteAllocator = typename allocator_traits<mapThreadIdToTls::allocator_type>::rebind_alloc<BYTE>;
 				// create an instance of the allocator type
 				mapThreadIdToTls::allocator_type alloc_type;
