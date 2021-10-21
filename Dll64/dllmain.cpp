@@ -71,6 +71,10 @@ __declspec(dllexport) HRESULT __stdcall GetCallstack64(
 					}
 				}
 			}
+			else
+			{
+				break;
+			}
 		}
 	}
 	catch (...)
